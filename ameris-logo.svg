@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" aria-label="Ameris">
+  <defs>
+    <linearGradient id="ameris-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#1F4FA1"/>
+      <stop offset="40%"  stop-color="#2A8FD8"/>
+      <stop offset="100%" stop-color="#52E4DC"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#ameris-grad)" stroke-width="13" stroke-linecap="round">
+    <line x1="28"  y1="100" x2="56" y2="22"/>
+    <line x1="92"  y1="100" x2="64" y2="22"/>
+    <line x1="44"  y1="78"  x2="76" y2="78"/>
+  </g>
+</svg>

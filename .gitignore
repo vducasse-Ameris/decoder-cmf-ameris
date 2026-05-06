@@ -1,0 +1,19 @@
+# Logs y temporales
+server.log
+*.log
+.DS_Store
+Thumbs.db
+
+# Archivos JSON heredados — los mapeos vivos están embebidos en maps.js,
+# estos quedan como respaldo histórico y no deben publicarse
+nemo_name_map.json
+rut_agf_map.json
+
+# Archivos de prueba / smoke tests temporales
+_check.js
+_smoke_test_*.js
+
+# Editores
+.vscode/
+.idea/
+*.swp
