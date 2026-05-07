@@ -1338,6 +1338,8 @@
 
 <!-- Embedded mappings (RUT_AGF_MAP, NEMO_NAME_MAP) -->
 <script src="maps.js"></script>
+<!-- Datos AUM sistema asegurador chileno (CMF · semestral · USD) -->
+<script src="insurer_aum_data.js"></script>
 
 <script>
 /* =======================================================================
@@ -2762,8 +2764,6 @@ function renderGeneral() {
   }
 
   const sumLibro = totalValLibro(hs);
-  const localCount = hs.filter(h => h._source === 'b2').length;
-  const extCount = hs.filter(h => h._source === 'b5').length;
   const localLibro = hs.filter(h => h._source === 'b2').reduce((s, h) => s + h.valLibro, 0);
   const extLibro = hs.filter(h => h._source === 'b5').reduce((s, h) => s + h.valLibro, 0);
   const agfList = aggregateByAGF(hs);
@@ -2775,28 +2775,39 @@ function renderGeneral() {
   const catEntries = Object.entries(catMap).sort((a,b) => b[1]-a[1]);
   const totalCat = catEntries.reduce((s,[,v])=>s+v,0) || 1;
 
-  // KPI cards
+  // Datos macro del sistema asegurador (CMF, semestral, USD)
+  const macro = window.INSURER_AUM_DATA;
+  const sysAUM_USD = macro ? macro.totalSystem : 0;
+  const sysGrowth = macro ? macro.totalGrowth : 0;
+  const sysComp = macro ? macro.systemComposition : {};
+  const sysCompPrev = macro ? macro.systemCompositionPrev : {};
+  const sysFI = sysComp.FondoInv || 0;
+  const sysFIPrev = sysCompPrev.FondoInv || 0;
+  const sysFIPct = sysAUM_USD > 0 ? (sysFI / sysAUM_USD * 100) : 0;
+  const sysFIGrowth = sysFIPrev > 0 ? (sysFI / sysFIPrev - 1) : null;
+
+  // KPI cards — vista macro del sistema
   const kpis = `
     <div class="kpi-grid">
       <div class="kpi accent">
-        <div class="label">Posiciones</div>
-        <div class="value">${fmtNumber(hs.length)}</div>
-        <div class="sublabel">${insList.length} compañías de seguros</div>
+        <div class="label">AUM Sistema Asegurador</div>
+        <div class="value">USD ${(sysAUM_USD / 1e9).toFixed(1)} Bn</div>
+        <div class="sublabel">${macro ? macro.companies.length : 0} compañías · ${macro ? macro.lastPeriod : '—'}</div>
       </div>
       <div class="kpi accent">
-        <div class="label">Val. Libro total</div>
+        <div class="label">Crecimiento YoY</div>
+        <div class="value" style="color:${sysGrowth > 0 ? '#047857' : '#b91c1c'}">${sysGrowth > 0 ? '+' : ''}${(sysGrowth * 100).toFixed(2)}%</div>
+        <div class="sublabel">vs ${macro ? macro.prevPeriod : '—'}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Fondos de Inversión (% sistema)</div>
+        <div class="value">${sysFIPct.toFixed(1)}%</div>
+        <div class="sublabel">USD ${(sysFI/1e9).toFixed(2)} Bn · ${sysFIGrowth !== null ? `${sysFIGrowth>0?'+':''}${(sysFIGrowth*100).toFixed(1)}% YoY` : ''}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">CFI cargados (B.2+B.5)</div>
         <div class="value">${fmtMoney(sumLibro)}</div>
-        <div class="sublabel">$CLP — cuotas FFII (B.2 + B.5 administradas por AGFs chilenas)</div>
-      </div>
-      <div class="kpi">
-        <div class="label">Mezcla local / extranjero</div>
-        <div class="value">${sumLibro > 0 ? Math.round(localLibro / sumLibro * 100) : 0}% / ${sumLibro > 0 ? Math.round(extLibro / sumLibro * 100) : 0}%</div>
-        <div class="sublabel">Local ${fmtMoney(localLibro)} · Ext. ${fmtMoney(extLibro)}</div>
-      </div>
-      <div class="kpi">
-        <div class="label">AGFs en cartera</div>
-        <div class="value">${agfList.length}</div>
-        <div class="sublabel">administradoras distintas</div>
+        <div class="sublabel">${insList.length} cías · ${agfList.length} AGFs · Local ${sumLibro > 0 ? Math.round(localLibro / sumLibro * 100) : 0}% / Ext ${sumLibro > 0 ? Math.round(extLibro / sumLibro * 100) : 0}%</div>
       </div>
     </div>
   `;
@@ -2833,11 +2844,227 @@ function renderGeneral() {
     </tr>
   `).join('');
 
+  // ============== ANÁLISIS MACRO (datos sistema CMF) ==============
+  let macroSections = '';
+  if (macro && macro.companies.length > 0) {
+    // Ranking compañías por AUM
+    const companies = macro.companies.slice();  // ordenadas desc por aumLast
+    const topN = 15;
+    const fmtUSD = v => v >= 1e9 ? `USD ${(v/1e9).toFixed(2)} Bn` : v >= 1e6 ? `USD ${(v/1e6).toFixed(1)} M` : `USD ${(v/1e3).toFixed(0)}K`;
+
+    // Bar chart top compañías
+    const barItems = companies.slice(0, 12).map(c => ({
+      label: c.name,
+      value: c.aumLast,
+      valueLabel: fmtUSD(c.aumLast),
+    }));
+
+    // Tabla ranking con crecimiento
+    const rankRows = companies.map((c, i) => {
+      const growthPct = c.growth !== null ? c.growth * 100 : null;
+      const growthCls = growthPct === null ? '' : growthPct > 0 ? 'pos' : 'neg';
+      return `
+      <tr>
+        <td>${i + 1}</td>
+        <td><strong>${escapeHtml(c.name)}</strong></td>
+        <td class="num">${fmtUSD(c.aumLast)}</td>
+        <td class="num">${(c.shareLast * 100).toFixed(2)}%</td>
+        <td class="num ${growthCls}">${growthPct !== null ? `${growthPct > 0 ? '+' : ''}${growthPct.toFixed(1)}%` : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    // Top winners (mayor crecimiento absoluto USD) y losers
+    const movements = companies
+      .filter(c => c.aumPrev !== null && c.aumPrev > 0)
+      .map(c => ({ ...c, deltaAbs: c.aumLast - c.aumPrev, deltaPct: c.growth }));
+    const winners = movements.slice().sort((a, b) => b.deltaAbs - a.deltaAbs).slice(0, 5);
+    const losers = movements.slice().sort((a, b) => a.deltaAbs - b.deltaAbs).slice(0, 5);
+
+    function moveRow(c) {
+      const cls = c.deltaAbs > 0 ? 'pos' : 'neg';
+      return `
+      <tr>
+        <td><strong>${escapeHtml(c.name)}</strong></td>
+        <td class="num ${cls}">${c.deltaAbs > 0 ? '+' : ''}${fmtUSD(Math.abs(c.deltaAbs))}</td>
+        <td class="num ${cls}">${c.deltaPct > 0 ? '+' : ''}${(c.deltaPct * 100).toFixed(1)}%</td>
+      </tr>`;
+    }
+
+    // Composición sistema por instrumento (último período)
+    const compEntries = Object.entries(macro.systemComposition)
+      .filter(([k, v]) => v > 0)
+      .sort((a, b) => b[1] - a[1]);
+    const compTotal = compEntries.reduce((s, [, v]) => s + v, 0) || 1;
+
+    // Donut composición sistema
+    const compDonutItems = compEntries.slice(0, 8).map(([k, v]) => ({
+      label: macro.instrumentLabels[k] || k,
+      value: v,
+    }));
+    const otherCompSum = compEntries.slice(8).reduce((s, [, v]) => s + v, 0);
+    if (otherCompSum > 0) {
+      compDonutItems.push({ label: `Otros instrumentos`, value: otherCompSum, color: '#94a3b8' });
+    }
+
+    // Tabla composición sistema con tendencia YoY por instrumento
+    const compRows = compEntries.map(([k, v]) => {
+      const prev = macro.systemCompositionPrev[k] || 0;
+      const pct = (v / compTotal * 100);
+      const growth = prev > 0 ? (v / prev - 1) * 100 : null;
+      const growthCls = growth === null ? '' : growth > 0 ? 'pos' : 'neg';
+      return `
+      <tr>
+        <td><strong>${escapeHtml(macro.instrumentLabels[k] || k)}</strong></td>
+        <td class="num">${fmtUSD(v)}</td>
+        <td class="num">${pct.toFixed(1)}%</td>
+        <td class="num ${growthCls}">${growth !== null ? `${growth > 0 ? '+' : ''}${growth.toFixed(1)}%` : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    // Conclusiones útiles para Ameris
+    const top5Aum = companies.slice(0, 5).reduce((s, c) => s + c.aumLast, 0);
+    const top5Share = top5Aum / sysAUM_USD * 100;
+    const fiInsights = (() => {
+      // Compañías que más aumentaron exposición a Fondos de Inversión (USD absoluto)
+      const fiMoves = companies
+        .filter(c => c.composition.FondoInv > 0 && (c.compositionPrev.FondoInv || 0) > 0)
+        .map(c => ({
+          name: c.name,
+          fiLast: c.composition.FondoInv,
+          fiPrev: c.compositionPrev.FondoInv,
+          delta: c.composition.FondoInv - (c.compositionPrev.FondoInv || 0),
+          deltaPct: ((c.composition.FondoInv / (c.compositionPrev.FondoInv || 1)) - 1) * 100,
+        }))
+        .sort((a, b) => b.delta - a.delta);
+      return fiMoves;
+    })();
+    const fiTopRows = fiInsights.slice(0, 6).map(c => `
+      <tr>
+        <td><strong>${escapeHtml(c.name)}</strong></td>
+        <td class="num">${fmtUSD(c.fiLast)}</td>
+        <td class="num pos">+${fmtUSD(c.delta)}</td>
+        <td class="num pos">+${c.deltaPct.toFixed(1)}%</td>
+      </tr>`).join('');
+    const fiBottomRows = fiInsights.slice(-5).reverse().filter(c => c.delta < 0).map(c => `
+      <tr>
+        <td><strong>${escapeHtml(c.name)}</strong></td>
+        <td class="num">${fmtUSD(c.fiLast)}</td>
+        <td class="num neg">${fmtUSD(c.delta)}</td>
+        <td class="num neg">${c.deltaPct.toFixed(1)}%</td>
+      </tr>`).join('');
+
+    macroSections = `
+      <div class="card" style="background:linear-gradient(135deg,#EAF2FD 0%,#E0FAFC 100%);border-color:var(--c-ameris-cyan)">
+        <div class="card-header" style="background:linear-gradient(135deg,var(--c-ameris-blue) 0%,var(--c-ameris-navy) 100%)">
+          <div class="card-title">📊 Conclusiones del sistema asegurador (${macro.lastPeriod})</div>
+        </div>
+        <div style="padding:16px 18px;font-size:13px;line-height:1.7">
+          <div style="margin-bottom:8px"><strong style="color:var(--c-ameris-blue)">Concentración:</strong> Top 5 compañías (${companies.slice(0,5).map(c=>escapeHtml(c.name)).join(', ')}) concentran <strong>${top5Share.toFixed(1)}%</strong> del AUM total del sistema (USD ${(top5Aum/1e9).toFixed(1)} Bn de USD ${(sysAUM_USD/1e9).toFixed(1)} Bn).</div>
+          <div style="margin-bottom:8px"><strong style="color:var(--c-ameris-blue)">Crecimiento YoY:</strong> El sistema creció <strong style="color:${sysGrowth>0?'#047857':'#b91c1c'}">${sysGrowth>0?'+':''}${(sysGrowth*100).toFixed(2)}%</strong> en los últimos 12 meses (USD ${((sysAUM_USD-(macro.totalSystemPrev||0))/1e9).toFixed(2)} Bn netos). El instrumento que más aumentó en términos absolutos fue <strong>${(() => { const m=compEntries.map(([k,v])=>({k,delta:v-(macro.systemCompositionPrev[k]||0)})).sort((a,b)=>b.delta-a.delta)[0]; return m ? escapeHtml(macro.instrumentLabels[m.k]) + ' (+USD ' + (m.delta/1e9).toFixed(2) + ' Bn)' : '—'; })()}.</div>
+          <div><strong style="color:var(--c-ameris-blue)">Fondos de Inversión (negocio AGF):</strong> Representan <strong>${sysFIPct.toFixed(1)}%</strong> del sistema (USD ${(sysFI/1e9).toFixed(2)} Bn) y crecieron <strong style="color:${sysFIGrowth>0?'#047857':'#b91c1c'}">${sysFIGrowth>0?'+':''}${(sysFIGrowth*100).toFixed(1)}%</strong> YoY${sysFIGrowth > sysGrowth ? ' — <em>más rápido que el sistema completo</em>, expansión del negocio AGF.' : ' — <em>por debajo del crecimiento del sistema</em>, posible rotación hacia otros instrumentos.'}</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title">Ranking compañías por AUM total · ${macro.lastPeriod}</div></div>
+        <div style="padding:14px 0 8px;overflow-x:auto">
+          ${renderHorizontalBarChart(barItems, { labelWidth: 240 })}
+        </div>
+      </div>
+
+      <div class="grid-2 equal-height">
+        <div class="card">
+          <div class="card-header"><div class="card-title">Ranking detallado · AUM y crecimiento YoY</div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>#</th><th>Compañía</th>
+                <th class="num">AUM (USD)</th>
+                <th class="num">% sistema</th>
+                <th class="num">YoY %</th>
+              </tr></thead>
+              <tbody>${rankRows}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">Composición del sistema por instrumento</div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Instrumento</th>
+                <th class="num">AUM (USD)</th>
+                <th class="num">% sistema</th>
+                <th class="num">YoY %</th>
+              </tr></thead>
+              <tbody>${compRows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2 equal-height">
+        <div class="card">
+          <div class="card-header"><div class="card-title">📈 Aseguradoras que más crecieron (USD absoluto)</div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Compañía</th><th class="num">Δ USD</th><th class="num">Δ %</th></tr></thead>
+              <tbody>${winners.map(moveRow).join('')}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">📉 Aseguradoras que más decrecieron</div></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Compañía</th><th class="num">Δ USD</th><th class="num">Δ %</th></tr></thead>
+              <tbody>${losers.filter(c=>c.deltaAbs<0).map(moveRow).join('') || '<tr><td colspan="3" class="empty-state">Ninguna compañía decreció</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="border-left:4px solid var(--c-ameris-cyan)">
+        <div class="card-header" style="background:linear-gradient(135deg,#3DD8E0 0%,#1F44C5 100%)">
+          <div class="card-title">🎯 Oportunidades para Ameris · Compañías que más aumentaron exposición a Fondos de Inversión</div>
+        </div>
+        <div style="padding:8px 14px 0;font-size:11.5px;color:var(--c-muted)">
+          Estas son las aseguradoras que más están <strong>aumentando su asignación a fondos de inversión</strong> en términos absolutos (USD). Son targets prioritarios para crecer wallet share Ameris.
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Compañía</th>
+              <th class="num">FI último período</th>
+              <th class="num">Δ USD YoY</th>
+              <th class="num">Δ % YoY</th>
+            </tr></thead>
+            <tbody>${fiTopRows || '<tr><td colspan="4" class="empty-state">Sin datos</td></tr>'}</tbody>
+          </table>
+        </div>
+        ${fiBottomRows ? `
+        <div style="padding:14px 14px 0;font-size:11.5px;color:var(--c-muted);border-top:1px dashed var(--c-border);margin-top:10px">
+          ⚠️ <strong>Aseguradoras que están reduciendo exposición a FI</strong> (riesgo de pérdida de AUM Ameris si están en cartera):
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Compañía</th><th class="num">FI último</th><th class="num">Δ USD</th><th class="num">Δ %</th></tr></thead>
+            <tbody>${fiBottomRows}</tbody>
+          </table>
+        </div>` : ''}
+      </div>
+    `;
+  }
+
   container.innerHTML = `
     <div class="notice">
-      <strong>Resumen general</strong> · Cuotas de fondos de inversión (CFI) consolidadas: B.2 local + B.5 cuotas administradas por AGFs chilenas. Filtra por período o AGF en la barra superior.
+      <strong>Resumen general</strong> · Vista macro del sistema asegurador chileno (CMF semestral, USD) + tu cartera CFI cargada (B.2 + B.5 administradas por AGFs chilenas).
     </div>
     ${kpis}
+    ${macroSections}
+
+    <h3 style="margin:30px 0 14px;color:var(--c-ameris-navy);font-size:16px;font-weight:700;letter-spacing:-.3px">📂 Tu cartera CFI cargada (archivos B.2 + B.5)</h3>
+
     <div class="grid-2 equal-height">
       <div class="card">
         <div class="card-header"><div class="card-title">Distribución por categoría</div></div>
@@ -2849,16 +3076,13 @@ function renderGeneral() {
         </div>
       </div>
       <div class="card">
-        <div class="card-header"><div class="card-title">Top 15 AGFs / Emisores en la cartera</div></div>
+        <div class="card-header"><div class="card-title">Top 15 AGFs en la cartera</div></div>
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>#</th>
-              <th title="Administradora General de Fondos o emisor de la acción">AGF / Emisor</th>
-              <th class="num" title="Número de fondos (nemotécnicos únicos) que esta AGF tiene en cartera de aseguradoras">Fondos</th>
-              <th class="num" title="Número de compañías de seguros que mantienen instrumentos de esta AGF">Cías.</th>
-              <th class="num" title="Total de registros de tenencia (posiciones) reportados">Pos.</th>
-              <th class="num" title="Suma del VALOR_LIBRO (valor contable) en pesos chilenos">Val. Libro</th>
+              <th>#</th><th>AGF</th>
+              <th class="num">Fondos</th><th class="num">Cías.</th>
+              <th class="num">Pos.</th><th class="num">Val. Libro</th>
             </tr></thead>
             <tbody>${topAGFRows || '<tr><td colspan="6" class="empty-state">Sin datos</td></tr>'}</tbody>
           </table>
@@ -2866,14 +3090,12 @@ function renderGeneral() {
       </div>
     </div>
     <div class="card">
-      <div class="card-header"><div class="card-title">Top 15 Compañías de Seguros (por Val. Libro)</div></div>
+      <div class="card-header"><div class="card-title">Top 15 Compañías de Seguros · CFI cargado</div></div>
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th>#</th>
-            <th title="Compañía de seguros supervisada por la CMF">Compañía</th>
-            <th class="num" title="Número de posiciones (instrumentos distintos) en cartera">Posiciones</th>
-            <th class="num" title="Suma del VALOR_LIBRO en pesos chilenos — valor contable de la cartera">Val. Libro</th>
+            <th>#</th><th>Compañía</th>
+            <th class="num">Posiciones</th><th class="num">Val. Libro</th>
           </tr></thead>
           <tbody>${topInsRows || '<tr><td colspan="4" class="empty-state">Sin datos</td></tr>'}</tbody>
         </table>
