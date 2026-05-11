@@ -2569,6 +2569,60 @@ function aggregateByAGF(holdings) {
   })).sort((a, b) => b.valLibro - a.valLibro);
 }
 
+// Renderiza el nombre de un fondo distinguiendo visualmente cuando NO tiene
+// un nombre amigable mapeado. Si `nemoFriendly` está y es distinto de `nemo`,
+// muestra el nombre amigable en negrita + el nemo abajo en gris.
+// Si NO hay nombre amigable, muestra el nemo en cursiva con un ⚠ pequeño
+// para que el usuario sepa que ese fondo requiere identificación.
+function nemoDisplay(rec) {
+  const friendly = rec.nemoFriendly;
+  const nemo = rec.nemo;
+  if (friendly && friendly !== nemo) {
+    return `<strong>${escapeHtml(friendly)}</strong>` +
+           `<div style="color:var(--c-muted);font-size:11px">${escapeHtml(nemo)}</div>`;
+  }
+  if (friendly) {
+    return `<strong>${escapeHtml(friendly)}</strong>`;
+  }
+  // Sin nombre amigable — visualmente distinguido para auditoría
+  return `<strong style="font-style:italic;color:#9a3412">${escapeHtml(nemo)}</strong>` +
+         `<div style="color:#c2410c;font-size:10px" title="Sin nombre amigable mapeado en maps.js — revisar Auditoría en Resumen General">⚠ pendiente de identificar</div>`;
+}
+
+// Auditoría: detecta nemos sin nombre amigable en NEMO_NAME_MAP. Recorre la
+// cartera activa y agrupa por nemo, retornando { nemo, agf, agfRut, valLibro,
+// occurrences, insurers, sample (un holding ejemplo) }, ordenado por valLibro DESC.
+// Útil para que el usuario priorice qué fondos auditar/renombrar primero.
+function auditPendingNemos() {
+  const hs = activeHoldings();
+  const map = new Map();
+  const knownMap = window.NEMO_NAME_MAP || {};
+  for (const h of hs) {
+    if (!h.nemo) continue;
+    if (knownMap[h.nemo]) continue;  // ya tiene nombre amigable
+    if (!map.has(h.nemo)) {
+      map.set(h.nemo, {
+        nemo: h.nemo,
+        agf: h.agf || canonicalAgfName(h.rutEmisor),
+        agfRut: canonicalAgfRut(h.rutEmisor),
+        serie: h.serie,
+        tipoInst: h.tipoInst,
+        category: h.category,
+        valLibro: 0,
+        occurrences: 0,
+        insurers: new Set(),
+        sources: new Set(),
+      });
+    }
+    const e = map.get(h.nemo);
+    e.valLibro += h.valLibro || 0;
+    e.occurrences += 1;
+    e.insurers.add(h._insurerRut);
+    e.sources.add(h._source || 'b2');
+  }
+  return Array.from(map.values()).sort((a, b) => b.valLibro - a.valLibro);
+}
+
 function aggregateByInsurer(holdings) {
   const map = new Map();
   for (const h of holdings) {
@@ -3101,7 +3155,123 @@ function renderGeneral() {
         </table>
       </div>
     </div>
+
+    ${renderAuditSection()}
   `;
+
+  // Wire del botón de descarga CSV de auditoría (post-render)
+  setTimeout(() => {
+    const btn = document.getElementById('btn-audit-csv');
+    if (btn) btn.addEventListener('click', exportAuditCSV);
+  }, 0);
+}
+
+// Renderiza la sección "Auditoría de nombres pendientes" del Resumen General.
+// Lista los nemos sin nombre amigable, agrupados por monto descendente.
+function renderAuditSection() {
+  const pending = auditPendingNemos();
+  if (pending.length === 0) {
+    return `
+      <div class="card" style="background:#f0fdf4;border-left:4px solid #047857">
+        <div class="card-header" style="background:#047857"><div class="card-title">✅ Auditoría de nombres · todo en orden</div></div>
+        <div style="padding:16px;font-size:13px">
+          Todos los nemotécnicos cargados tienen nombre amigable en <code>maps.js</code>. No hay nada que corregir.
+        </div>
+      </div>`;
+  }
+
+  const top30 = pending.slice(0, 30);
+  const totalPending = pending.reduce((s, p) => s + p.valLibro, 0);
+  // Agrupar por AGF para resumen
+  const byAgf = new Map();
+  for (const p of pending) {
+    if (!byAgf.has(p.agf)) byAgf.set(p.agf, { count: 0, valLibro: 0 });
+    const e = byAgf.get(p.agf);
+    e.count++;
+    e.valLibro += p.valLibro;
+  }
+  const agfList = Array.from(byAgf.entries())
+    .map(([agf, v]) => ({ agf, ...v }))
+    .sort((a, b) => b.valLibro - a.valLibro)
+    .slice(0, 10);
+
+  const top30Rows = top30.map((p, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td class="nemo-cell"><strong>${escapeHtml(p.nemo)}</strong>${p.serie ? `<div style="color:var(--c-muted);font-size:10.5px">Serie ${escapeHtml(p.serie)}</div>` : ''}</td>
+      <td>${escapeHtml(p.agf)}</td>
+      <td><span class="badge ${p.tipoInst.toLowerCase().slice(0,3)}">${escapeHtml(p.tipoInst)}</span></td>
+      <td class="num">${fmtMoney(p.valLibro)}</td>
+      <td class="num">${p.insurers.size}</td>
+      <td class="num">${p.occurrences}</td>
+    </tr>
+  `).join('');
+
+  const agfRows = agfList.map(a => `
+    <tr>
+      <td><strong>${escapeHtml(a.agf)}</strong></td>
+      <td class="num">${a.count}</td>
+      <td class="num">${fmtMoney(a.valLibro)}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <h3 style="margin:30px 0 14px;color:var(--c-ameris-navy);font-size:16px;font-weight:700;letter-spacing:-.3px">🔍 Auditoría de nombres pendientes</h3>
+    <div class="card" style="border-left:4px solid #f59e0b">
+      <div class="card-header" style="background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%)">
+        <div class="card-title">⚠️ Nemotécnicos sin nombre amigable en maps.js</div>
+      </div>
+      <div style="padding:14px 18px;font-size:12.5px;line-height:1.6">
+        <p style="margin:0 0 10px">
+          <strong>${pending.length} nemos</strong> aparecen en la cartera cargada pero no tienen un nombre amigable mapeado en <code>maps.js</code>. Total expuesto: <strong>${fmtMoney(totalPending)}</strong>. Estos fondos se muestran en todo el dashboard por su código CMF crudo (ej. <code>CFIFGTCR-E</code>) en vez de su nombre comercial.
+        </p>
+        <p style="margin:0">
+          Descarga la lista completa, complétala con los nombres comerciales que conozcas, y me la mandas para integrarla a <code>maps.js</code>. Los TOP 30 por monto están abajo.
+        </p>
+        <div style="margin-top:12px">
+          <button class="btn" type="button" id="btn-audit-csv">📥 Descargar CSV completo (${pending.length} pendientes)</button>
+        </div>
+      </div>
+
+      <div class="grid-2 equal-height" style="padding:0 14px 14px">
+        <div style="border:1px solid var(--c-border);border-radius:var(--r-sm);overflow:hidden">
+          <div style="background:#FAFBFD;padding:8px 12px;font-size:11.5px;font-weight:700;color:var(--c-ameris-navy);border-bottom:1px solid var(--c-border)">TOP AGFs con nemos pendientes</div>
+          <table style="margin:0">
+            <thead><tr><th>AGF</th><th class="num">N° nemos</th><th class="num">Total CLP</th></tr></thead>
+            <tbody>${agfRows}</tbody>
+          </table>
+        </div>
+        <div style="border:1px solid var(--c-border);border-radius:var(--r-sm);overflow:hidden">
+          <div style="background:#FAFBFD;padding:8px 12px;font-size:11.5px;font-weight:700;color:var(--c-ameris-navy);border-bottom:1px solid var(--c-border)">Top 30 nemos pendientes por monto</div>
+          <div class="table-wrap" style="max-height:380px;overflow-y:auto">
+            <table style="margin:0">
+              <thead><tr><th>#</th><th>Nemotécnico</th><th>AGF</th><th>Tipo</th><th class="num">Val. Libro</th><th class="num">Cías.</th><th class="num">Ocurr.</th></tr></thead>
+              <tbody>${top30Rows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Genera CSV con TODOS los nemos pendientes para corrección offline.
+function exportAuditCSV() {
+  const pending = auditPendingNemos();
+  if (pending.length === 0) {
+    alert('No hay nemos pendientes de nombrar.');
+    return;
+  }
+  const rows = [['Nemotécnico', 'AGF', 'RUT AGF', 'Tipo Instr.', 'Categoría', 'Serie', 'Val. Libro (CLP)', 'N° Compañías', 'N° Ocurrencias', 'Origen', 'Nombre comercial sugerido (completar)']];
+  for (const p of pending) {
+    rows.push([
+      p.nemo, p.agf, p.agfRut, p.tipoInst, p.category, p.serie,
+      p.valLibro, p.insurers.size, p.occurrences,
+      Array.from(p.sources).join('+').toUpperCase(),
+      ''
+    ]);
+  }
+  downloadCSV(rows, `auditoria_nemos_pendientes_${(STATE.selectedPeriod || 'todos')}.csv`);
 }
 
 /* ---- AGF view ---- */
@@ -3529,10 +3699,7 @@ function renderInsurerByCategory(recs, lastP) {
       const valCuota = h.unidades > 0 ? h.valLibro / h.unidades : 0;
       return `
         <tr>
-          <td>
-            <strong>${escapeHtml(h.nemoFriendly || h.nemo)}</strong>
-            ${h.nemoFriendly && h.nemoFriendly !== h.nemo ? `<br><span style="color:var(--c-muted);font-size:11px">${escapeHtml(h.nemo)}</span>` : ''}
-          </td>
+          <td>${nemoDisplay(h)}</td>
           <td>${escapeHtml(h.serie)}</td>
           <td><span class="badge ${h.tipoInst.toLowerCase().slice(0,3)}">${escapeHtml(h.tipoInst)}</span></td>
           <td>${escapeHtml(h.agf || '—')}</td>
@@ -3663,10 +3830,7 @@ function renderInsurerByAGF(recs, lastP, agfsForFilter, totLibroAll) {
       const valCuota = h.unidades > 0 ? h.valLibro / h.unidades : 0;
       return `
         <tr>
-          <td>
-            <strong>${escapeHtml(h.nemoFriendly || h.nemo)}</strong>
-            ${h.nemoFriendly && h.nemoFriendly !== h.nemo ? `<br><span style="color:var(--c-muted);font-size:11px">${escapeHtml(h.nemo)}</span>` : ''}
-          </td>
+          <td>${nemoDisplay(h)}</td>
           <td>${escapeHtml(h.serie)}</td>
           <td><span class="badge ${h.tipoInst.toLowerCase().slice(0,3)}">${escapeHtml(h.tipoInst)}</span></td>
           <td>${escapeHtml(h.category)}</td>
