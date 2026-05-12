@@ -1351,11 +1351,11 @@
 </div>
 
 <!-- Embedded mappings (RUT_AGF_MAP, NEMO_NAME_MAP) -->
-<script src="maps.js?v=2026-05-11e"></script>
+<script src="maps.js?v=2026-05-12a"></script>
 <!-- Datos AUM sistema asegurador chileno (CMF · semestral · USD) -->
-<script src="insurer_aum_data.js?v=2026-05-11e"></script>
+<script src="insurer_aum_data.js?v=2026-05-12a"></script>
 <!-- Tabla autoritativa nemo → administradora real + nombre fondo (de NOMBRE_EMISOR B.5) -->
-<script src="nemo_authority.js?v=2026-05-11e"></script>
+<script src="nemo_authority.js?v=2026-05-12a"></script>
 
 <script>
 /* =======================================================================
@@ -3780,7 +3780,7 @@ function renderInsurerByCategory(recs, lastP) {
       `;
     }).join('');
     return `
-      <details open>
+      <details>
         <summary>${escapeHtml(cat)} — ${lastRows.length} posiciones · ${fmtMoney(subTotal)} (último registro)</summary>
         <div class="table-wrap" style="margin-top:8px">
           <table>
@@ -3911,7 +3911,7 @@ function renderInsurerByAGF(recs, lastP, agfsForFilter, totLibroAll) {
       `;
     }).join('');
     return `
-      <details ${INSURER_AGF_FILTER ? 'open' : ''}>
+      <details>
         <summary>
           <strong${isHighlighted ? ' style="color:var(--c-ameris-blue)"' : ''}>${escapeHtml(g.name)}</strong>
           <span style="color:var(--c-muted);font-size:11.5px"> · ${lastRows.length} fondo${lastRows.length !== 1 ? 's' : ''} · ${fmtMoney(subTotal)}</span>
