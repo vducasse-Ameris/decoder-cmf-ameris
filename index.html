@@ -1356,6 +1356,10 @@
 <script src="insurer_aum_data.js?v=2026-05-12a"></script>
 <!-- Tabla autoritativa nemo → administradora real + nombre fondo (de NOMBRE_EMISOR B.5) -->
 <script src="nemo_authority.js?v=2026-05-12a"></script>
+<!-- FUENTE AUTORITATIVA MÁXIMA: datos scrapeados de www.bolsadesantiago.com
+     Generado offline con Scraper/scraper_bolsa.py + merge_to_maps.py.
+     Si el archivo no existe (aún no ejecutaste el scraper), simplemente no se carga. -->
+<script src="bolsa_overrides.js?v=2026-05-12a" onerror="this.remove()"></script>
 
 <script>
 /* =======================================================================
@@ -1888,14 +1892,20 @@ let STATE = {
 };
 
 // Look up a friendly name for a CMF nemotécnico.
-// Prioridad: 1) NEMO_NAME_MAP (curado manual), 2) NEMO_AUTHORITY (extraído del
-// NOMBRE_EMISOR de los archivos B.5, formato "ADMIN-FONDO"), 3) null.
+// Prioridad (de mayor a menor):
+//  1) BOLSA_OVERRIDES — scrapeado de www.bolsadesantiago.com (fuente oficial)
+//  2) NEMO_NAME_MAP — curado manual en maps.js
+//  3) NEMO_AUTHORITY — extraído del NOMBRE_EMISOR de archivos B.5
+//  4) null
 function friendlyForNemo(nemo) {
   if (!nemo) return nemo;
+  if (window.BOLSA_OVERRIDES && window.BOLSA_OVERRIDES[nemo] && window.BOLSA_OVERRIDES[nemo].f) {
+    return window.BOLSA_OVERRIDES[nemo].f;
+  }
   if (window.NEMO_NAME_MAP && window.NEMO_NAME_MAP[nemo]) return window.NEMO_NAME_MAP[nemo];
   if (window.NEMO_AUTHORITY && window.NEMO_AUTHORITY[nemo]) {
     const auth = window.NEMO_AUTHORITY[nemo];
-    if (auth.f) return auth.f;  // nombre del fondo limpio
+    if (auth.f) return auth.f;
   }
   return null;
 }
@@ -1910,13 +1920,18 @@ function friendlyForNemo(nemo) {
 function resolveAgf(rec) {
   const rutRegistrado = rec.rutEmisor || rec.rutAdm;
   const nameFromRut = rutRegistrado ? canonicalAgfName(rutRegistrado) : '—';
+  // Prioridad 1: BOLSA_OVERRIDES (fuente oficial Bolsa de Santiago, si está disponible)
+  if (window.BOLSA_OVERRIDES && rec.nemo && window.BOLSA_OVERRIDES[rec.nemo] && window.BOLSA_OVERRIDES[rec.nemo].a) {
+    const adminBolsa = window.BOLSA_OVERRIDES[rec.nemo].a;
+    const norm = s => (s || '').toUpperCase().replace(/\b(S\.?A\.?|AGF|ADM|ADMIN|ADMINISTRADORA|GRAL|GENERAL|FONDOS|S A)\b/g, '').replace(/[^\w]/g, '').slice(0, 8);
+    const mismatch = !!(norm(adminBolsa) && norm(nameFromRut) && !norm(adminBolsa).startsWith(norm(nameFromRut).slice(0, 6)) && !norm(nameFromRut).startsWith(norm(adminBolsa).slice(0, 6)));
+    return { name: adminBolsa, source: 'BOLSA_SANTIAGO', mismatch, rutMappingName: nameFromRut };
+  }
+  // Prioridad 2: NEMO_AUTHORITY (extraído del NOMBRE_EMISOR de los archivos)
   const auth = (window.NEMO_AUTHORITY && rec.nemo) ? window.NEMO_AUTHORITY[rec.nemo] : null;
   if (auth && auth.a) {
-    // Comparación normalizada para detectar mismatch
     const norm = s => (s || '').toUpperCase().replace(/\b(S\.?A\.?|AGF|ADM|ADMIN|ADMINISTRADORA|GRAL|GENERAL|FONDOS|S A)\b/g, '').replace(/[^\w]/g, '').slice(0, 8);
-    const authNorm = norm(auth.a);
-    const rutNorm = norm(nameFromRut);
-    const mismatch = !!(authNorm && rutNorm && !authNorm.startsWith(rutNorm.slice(0, 6)) && !rutNorm.startsWith(authNorm.slice(0, 6)));
+    const mismatch = !!(norm(auth.a) && norm(nameFromRut) && !norm(auth.a).startsWith(norm(nameFromRut).slice(0, 6)) && !norm(nameFromRut).startsWith(norm(auth.a).slice(0, 6)));
     return { name: auth.a, source: 'NOMBRE_EMISOR', mismatch, rutMappingName: nameFromRut };
   }
   return { name: nameFromRut, source: 'RUT_AGF_MAP', mismatch: false, rutMappingName: nameFromRut };
