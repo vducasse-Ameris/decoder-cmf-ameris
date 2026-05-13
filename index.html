@@ -1359,7 +1359,7 @@
 <!-- FUENTE AUTORITATIVA MÁXIMA: datos scrapeados de www.bolsadesantiago.com
      Generado offline con Scraper/scraper_bolsa.py + merge_to_maps.py.
      Si el archivo no existe (aún no ejecutaste el scraper), simplemente no se carga. -->
-<script src="bolsa_overrides.js?v=2026-05-12a" onerror="this.remove()"></script>
+<script src="bolsa_overrides.js?v=2026-05-12b" onerror="this.remove()"></script>
 
 <script>
 /* =======================================================================
@@ -3520,7 +3520,7 @@ function renderAGFDetail(rut, hs) {
       `;
     }).join('');
     return `
-      <details open style="margin-bottom:14px">
+      <details style="margin-bottom:14px">
         <summary>
           <strong>${escapeHtml(f.nemoFriendly)}</strong>
           ${f.nemoFriendly !== f.nemo ? ` <span style="color:var(--c-muted);font-size:11px">${escapeHtml(f.nemo)}</span>` : ''}
