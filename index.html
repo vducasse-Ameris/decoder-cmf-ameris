@@ -1899,15 +1899,18 @@ let STATE = {
 //  4) null
 function friendlyForNemo(nemo) {
   if (!nemo) return nemo;
+  let name = null;
   if (window.BOLSA_OVERRIDES && window.BOLSA_OVERRIDES[nemo] && window.BOLSA_OVERRIDES[nemo].f) {
-    return window.BOLSA_OVERRIDES[nemo].f;
-  }
-  if (window.NEMO_NAME_MAP && window.NEMO_NAME_MAP[nemo]) return window.NEMO_NAME_MAP[nemo];
-  if (window.NEMO_AUTHORITY && window.NEMO_AUTHORITY[nemo]) {
+    name = window.BOLSA_OVERRIDES[nemo].f;
+  } else if (window.NEMO_NAME_MAP && window.NEMO_NAME_MAP[nemo]) {
+    name = window.NEMO_NAME_MAP[nemo];
+  } else if (window.NEMO_AUTHORITY && window.NEMO_AUTHORITY[nemo]) {
     const auth = window.NEMO_AUTHORITY[nemo];
-    if (auth.f) return auth.f;
+    if (auth.f) name = auth.f;
   }
-  return null;
+  // Preferencia de UX: nombres de fondos siempre en MAYÚSCULAS para
+  // consistencia visual y búsqueda rápida.
+  return name ? name.toLocaleUpperCase('es-CL') : null;
 }
 
 // Algunas compañías de seguros reportan a CMF un RUT_ADMINISTRADORA que no
