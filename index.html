@@ -3302,9 +3302,9 @@ function renderGeneral() {
             <div style="padding:8px 14px 0;font-size:11.5px;color:var(--c-muted)">
               Top 10 fondos con mayor crecimiento absoluto en Val. Libro entre períodos.
             </div>
-            <div class="table-wrap" style="max-height:420px;overflow-y:auto">
-              <table>
-                <thead><tr><th>Fondo</th><th>AGF</th><th class="num">Val. Libro</th><th class="num">Δ abs.</th><th class="num">Δ %</th></tr></thead>
+            <div style="max-height:480px;overflow-y:auto;overflow-x:auto;border-top:1px solid var(--c-border)">
+              <table style="width:100%">
+                <thead style="position:sticky;top:0;background:#f8fafc;z-index:1"><tr><th>Fondo</th><th>AGF</th><th class="num">Val. Libro</th><th class="num">Δ abs.</th><th class="num">Δ %</th></tr></thead>
                 <tbody>${growerRows}</tbody>
               </table>
             </div>
@@ -3317,9 +3317,9 @@ function renderGeneral() {
             <div style="padding:8px 14px 0;font-size:11.5px;color:var(--c-muted)">
               Fondos que aparecen por primera vez en ${lastPeriod}. ${newFundsFromNewAgf.length > 0 ? '<strong style="color:#dc2626">Filas amarillas: AGF que no aparecía antes</strong> (apertura de relación con nueva administradora).' : ''}
             </div>
-            <div class="table-wrap" style="max-height:420px;overflow-y:auto">
-              <table>
-                <thead style="position:sticky;top:0;background:white;z-index:1"><tr><th>Fondo</th><th>AGF</th><th class="num">Cías.</th><th class="num">Val. Libro</th></tr></thead>
+            <div style="max-height:480px;overflow-y:auto;overflow-x:auto;border-top:1px solid var(--c-border)">
+              <table style="width:100%">
+                <thead style="position:sticky;top:0;background:#f8fafc;z-index:1"><tr><th>Fondo</th><th>AGF</th><th class="num">Cías.</th><th class="num">Val. Libro</th></tr></thead>
                 <tbody>${newFundRows}</tbody>
               </table>
             </div>
@@ -5524,53 +5524,64 @@ function renderPulsoAmeris() {
   }
   const clientList = Array.from(insurerMap.values()).sort((a, b) => b.valor - a.valor);
 
-  // ===== Movimientos de exposición Ameris por cía (vs período anterior) =====
-  // Para cada cliente Ameris actual: AUM previo, deltaAbs y deltaPct.
-  // También detectamos cías. que estaban antes pero YA NO (salidas totales).
-  let exposureMovers = null;
+  // ===== Movimientos de exposición POR AGF (vs período anterior) =====
+  // Para cada AGF: AUM total invertido por TODAS las compañías de seguros en
+  // el período actual y en el anterior. Identifica AGFs cuyo dinero está
+  // creciendo o cayendo en las carteras de las aseguradoras.
+  // Útil para entender competencia: en qué AGFs las cías. están confiando más.
+  let agfMovers = null;
   if (allP.length >= 2 && prevP) {
     const prevCFI = allCFI.filter(h => h._periodo === prevP);
-    const prevInsurerMap = new Map();
-    for (const h of prevCFI) {
-      if (!isAmerisRut(h.rutEmisor) && !/ameris/i.test(h.agf || '')) continue;
-      const cur = prevInsurerMap.get(h._insurerRut) || {
-        rut: h._insurerRut, name: h._insurerName, valor: 0,
-      };
-      cur.valor += h.valLibro || 0;
-      prevInsurerMap.set(h._insurerRut, cur);
-    }
-    // Cías. con exposición en ambos períodos
-    const movements = clientList.map(c => {
-      const prev = prevInsurerMap.get(c.rut);
+    const aggrByAgf = (recs) => {
+      const m = new Map();
+      for (const h of recs) {
+        const cr = canonicalAgfRut(h.rutEmisor);
+        if (!cr) continue;
+        const cur = m.get(cr) || {
+          rut: cr, name: canonicalAgfName(h.rutEmisor),
+          valor: 0, fondos: new Set(), insurers: new Set(),
+        };
+        cur.valor += h.valLibro || 0;
+        cur.fondos.add(h.nemo);
+        cur.insurers.add(h._insurerRut);
+        m.set(cr, cur);
+      }
+      return m;
+    };
+    const lastAgfMap = aggrByAgf(lastCFI);
+    const prevAgfMap = aggrByAgf(prevCFI);
+
+    // AGFs con exposición en último período
+    const movements = Array.from(lastAgfMap.values()).map(a => {
+      const prev = prevAgfMap.get(a.rut);
       const prevValor = prev ? prev.valor : 0;
       return {
-        ...c, prevValor,
-        deltaAbs: c.valor - prevValor,
-        deltaPct: prevValor > 0 ? (c.valor / prevValor - 1) : null,
+        ...a, prevValor,
+        deltaAbs: a.valor - prevValor,
+        deltaPct: prevValor > 0 ? (a.valor / prevValor - 1) : null,
         isNew: !prev,
       };
     });
-    // Cías. que dejaron de tener Ameris (estaban en prev, no en last)
-    const lastRuts = new Set(clientList.map(c => c.rut));
-    const lostClients = Array.from(prevInsurerMap.values())
-      .filter(c => !lastRuts.has(c.rut))
-      .map(c => ({ ...c, prevValor: c.valor, deltaAbs: -c.valor, deltaPct: -1, isLost: true, valor: 0 }))
-      .sort((a, b) => a.deltaAbs - b.deltaAbs);
-    // Top movers
+    // AGFs que tenían exposición y ahora NO
+    const lastAgfRuts = new Set(Array.from(lastAgfMap.keys()));
+    const lostAgfs = Array.from(prevAgfMap.values())
+      .filter(a => !lastAgfRuts.has(a.rut))
+      .map(a => ({ ...a, prevValor: a.valor, deltaAbs: -a.valor, deltaPct: -1, isLost: true, valor: 0, fondos: new Set(), insurers: new Set() }));
+
     const topGrowers = movements
       .filter(m => m.deltaAbs > 0)
       .sort((a, b) => b.deltaAbs - a.deltaAbs)
-      .slice(0, 6);
+      .slice(0, 10);
     const topReducers = movements
       .filter(m => m.deltaAbs < 0 && !m.isNew)
       .sort((a, b) => a.deltaAbs - b.deltaAbs)
-      .concat(lostClients)
-      .slice(0, 6);
+      .concat(lostAgfs.sort((a, b) => a.deltaAbs - b.deltaAbs))
+      .slice(0, 10);
     const totalIn = movements.reduce((s, m) => s + Math.max(0, m.deltaAbs), 0);
     const totalOut = movements.reduce((s, m) => s + Math.min(0, m.deltaAbs), 0)
-                   + lostClients.reduce((s, c) => s + c.deltaAbs, 0);
+                   + lostAgfs.reduce((s, a) => s + a.deltaAbs, 0);
     const netFlow = totalIn + totalOut;
-    exposureMovers = { topGrowers, topReducers, totalIn, totalOut, netFlow, prevP, lastP };
+    agfMovers = { topGrowers, topReducers, totalIn, totalOut, netFlow, prevP, lastP };
   }
 
   // HHI (Herfindahl-Hirschman) de concentración de clientes — métrica de riesgo de cliente
@@ -5727,17 +5738,17 @@ function renderPulsoAmeris() {
         <div class="value">${fmtMoney(amerisAUM)}</div>
         <div class="sublabel">${amerisFunds.size} fondos · ${amerisInsurers.size} aseguradoras clientes</div>
       </div>
-      <div class="kpi accent">
-        <div class="label">Ranking entre AGFs</div>
-        <div class="value">#${amerisRank || '—'}</div>
-        <div class="sublabel">de ${agfRanking.length} AGFs/emisores en el sistema</div>
-      </div>
       <div class="kpi">
         <div class="label">Cuota de mercado CFI</div>
         <div class="value">${amerisShare.toFixed(2)}%</div>
-        <div class="sublabel">del total CFI ($${fmtMoney(totalSysLast).replace('$','')})</div>
+        <div class="sublabel">del total CFI cargado · ${fmtMoney(totalSysLast)}</div>
       </div>
       ${growthCard}
+      <div class="kpi">
+        <div class="label">Aseguradoras clientes</div>
+        <div class="value">${amerisInsurers.size}</div>
+        <div class="sublabel">de ${totalInsurersInSys} en el sistema cargado</div>
+      </div>
     </div>
 
     <!-- KPI Row 2: Penetration, Concentration, Avg position size -->
@@ -5764,55 +5775,59 @@ function renderPulsoAmeris() {
       </div>
     </div>
 
-    ${exposureMovers ? (() => {
+    ${agfMovers ? (() => {
+      const isAmeris = (rut) => isAmerisRut(rut) || /ameris/i.test(arguments[0] || '');
       const moverRow = m => {
         const cls = m.deltaAbs > 0 ? 'pos' : 'neg';
+        const isAm = isAmerisRut(m.rut) || /ameris/i.test(m.name || '');
+        const rowStyle = isAm ? ' style="background:#EAF2FD"' : '';
         const badge = m.isLost
           ? ' <span style="background:#dc2626;color:white;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;letter-spacing:0.3px">SALIDA</span>'
           : m.isNew
             ? ' <span style="background:#16a34a;color:white;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;letter-spacing:0.3px">NUEVA</span>'
             : '';
-        return `<tr>
-          <td><strong>${escapeHtml(m.name)}</strong>${badge}<div style="color:var(--c-muted);font-size:10.5px">RUT ${fmtRut(m.rut)}</div></td>
+        const amerisBadge = isAm ? ' <span style="background:var(--c-ameris-blue);color:white;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;letter-spacing:0.3px">AMERIS</span>' : '';
+        return `<tr${rowStyle}>
+          <td><strong>${escapeHtml(m.name)}</strong>${amerisBadge}${badge}<div style="color:var(--c-muted);font-size:10.5px">${m.fondos && m.fondos.size > 0 ? `${m.fondos.size} fondos · ${m.insurers.size} cías.` : 'sin posiciones'}</div></td>
           <td class="num">${fmtMoney(m.prevValor)}</td>
           <td class="num">${fmtMoney(m.valor)}</td>
           <td class="num ${cls}">${m.deltaAbs > 0 ? '+' : ''}${fmtMoney(m.deltaAbs)}</td>
           <td class="num ${cls}">${m.deltaPct === null ? '∞' : m.isLost ? '-100%' : `${m.deltaPct > 0 ? '+' : ''}${(m.deltaPct * 100).toFixed(1)}%`}</td>
         </tr>`;
       };
-      const insight = exposureMovers.netFlow > 0
-        ? `<strong style="color:#047857">📈 Crecimiento neto</strong> de <strong>${fmtMoney(exposureMovers.netFlow)}</strong> entre ${fmtPeriod(exposureMovers.prevP)} y ${fmtPeriod(exposureMovers.lastP)}. Las compañías están <strong>aumentando</strong> exposición a Ameris.`
-        : exposureMovers.netFlow < 0
-        ? `<strong style="color:#b91c1c">📉 Reducción neta</strong> de <strong>${fmtMoney(Math.abs(exposureMovers.netFlow))}</strong> entre ${fmtPeriod(exposureMovers.prevP)} y ${fmtPeriod(exposureMovers.lastP)}. Las compañías están <strong>reduciendo</strong> exposición.`
-        : `Flujo neto cercano a cero entre ${fmtPeriod(exposureMovers.prevP)} y ${fmtPeriod(exposureMovers.lastP)}.`;
+      const insight = agfMovers.netFlow > 0
+        ? `<strong style="color:#047857">📈 Flujo neto positivo</strong> de <strong>${fmtMoney(agfMovers.netFlow)}</strong> entre ${fmtPeriod(agfMovers.prevP)} y ${fmtPeriod(agfMovers.lastP)}. Las compañías de seguros están <strong>aumentando</strong> su inversión total en fondos.`
+        : agfMovers.netFlow < 0
+        ? `<strong style="color:#b91c1c">📉 Flujo neto negativo</strong> de <strong>${fmtMoney(Math.abs(agfMovers.netFlow))}</strong> entre ${fmtPeriod(agfMovers.prevP)} y ${fmtPeriod(agfMovers.lastP)}. Las compañías de seguros están <strong>reduciendo</strong> exposición a fondos.`
+        : `Flujo neto cercano a cero entre ${fmtPeriod(agfMovers.prevP)} y ${fmtPeriod(agfMovers.lastP)}.`;
       return `
         <div class="card" style="border-left:4px solid var(--c-ameris-blue)">
           <div class="card-header" style="background:linear-gradient(135deg,var(--c-ameris-blue) 0%,var(--c-ameris-navy) 100%)">
-            <div class="card-title">🎯 Insight · Movimientos de exposición Ameris por compañía</div>
+            <div class="card-title">🎯 Insight · En qué AGFs están invirtiendo más / menos las compañías de seguros</div>
           </div>
           <div style="padding:14px 18px;font-size:13px;line-height:1.7">
             ${insight}
             <div style="margin-top:6px;font-size:12px;color:var(--c-muted)">
-              Entradas (cías. que aumentaron): <strong style="color:#047857">+${fmtMoney(exposureMovers.totalIn)}</strong> ·
-              Salidas (cías. que redujeron o se fueron): <strong style="color:#b91c1c">${fmtMoney(exposureMovers.totalOut)}</strong>
+              Total entrante (AGFs que ganaron exposición): <strong style="color:#047857">+${fmtMoney(agfMovers.totalIn)}</strong> ·
+              Total saliente (AGFs que perdieron): <strong style="color:#b91c1c">${fmtMoney(agfMovers.totalOut)}</strong>
             </div>
           </div>
           <div class="grid-2" style="align-items:start;padding:0 12px 12px">
             <div>
-              <div style="padding:6px 4px 8px;font-size:12px;color:#047857;font-weight:700">⬆ Aumentaron exposición</div>
-              <div class="table-wrap" style="max-height:340px;overflow-y:auto">
-                <table>
-                  <thead style="position:sticky;top:0;background:white"><tr><th>Compañía</th><th class="num">${fmtPeriod(exposureMovers.prevP)}</th><th class="num">${fmtPeriod(exposureMovers.lastP)}</th><th class="num">Δ abs.</th><th class="num">Δ %</th></tr></thead>
-                  <tbody>${exposureMovers.topGrowers.map(moverRow).join('') || '<tr><td colspan="5" class="empty-state">Ninguna compañía aumentó</td></tr>'}</tbody>
+              <div style="padding:6px 4px 8px;font-size:12px;color:#047857;font-weight:700">⬆ AGFs en las que más están invirtiendo</div>
+              <div style="max-height:420px;overflow-y:auto;border-top:1px solid var(--c-border)">
+                <table style="width:100%">
+                  <thead style="position:sticky;top:0;background:#f8fafc;z-index:1"><tr><th>AGF</th><th class="num">${fmtPeriod(agfMovers.prevP)}</th><th class="num">${fmtPeriod(agfMovers.lastP)}</th><th class="num">Δ abs.</th><th class="num">Δ %</th></tr></thead>
+                  <tbody>${agfMovers.topGrowers.map(moverRow).join('') || '<tr><td colspan="5" class="empty-state">Ninguna AGF ganó exposición</td></tr>'}</tbody>
                 </table>
               </div>
             </div>
             <div>
-              <div style="padding:6px 4px 8px;font-size:12px;color:#b91c1c;font-weight:700">⬇ Redujeron exposición</div>
-              <div class="table-wrap" style="max-height:340px;overflow-y:auto">
-                <table>
-                  <thead style="position:sticky;top:0;background:white"><tr><th>Compañía</th><th class="num">${fmtPeriod(exposureMovers.prevP)}</th><th class="num">${fmtPeriod(exposureMovers.lastP)}</th><th class="num">Δ abs.</th><th class="num">Δ %</th></tr></thead>
-                  <tbody>${exposureMovers.topReducers.map(moverRow).join('') || '<tr><td colspan="5" class="empty-state">Ninguna compañía redujo</td></tr>'}</tbody>
+              <div style="padding:6px 4px 8px;font-size:12px;color:#b91c1c;font-weight:700">⬇ AGFs en las que están reduciendo</div>
+              <div style="max-height:420px;overflow-y:auto;border-top:1px solid var(--c-border)">
+                <table style="width:100%">
+                  <thead style="position:sticky;top:0;background:#f8fafc;z-index:1"><tr><th>AGF</th><th class="num">${fmtPeriod(agfMovers.prevP)}</th><th class="num">${fmtPeriod(agfMovers.lastP)}</th><th class="num">Δ abs.</th><th class="num">Δ %</th></tr></thead>
+                  <tbody>${agfMovers.topReducers.map(moverRow).join('') || '<tr><td colspan="5" class="empty-state">Ninguna AGF perdió exposición</td></tr>'}</tbody>
                 </table>
               </div>
             </div>
@@ -5821,7 +5836,7 @@ function renderPulsoAmeris() {
       `;
     })() : `
       <div class="notice" style="background:#fffbeb;border-color:#fde68a">
-        💡 <strong>Insight de movimientos por compañía:</strong> cargá al menos 2 períodos para ver qué aseguradoras están aumentando o reduciendo su exposición a Ameris.
+        💡 <strong>Insight de movimientos por AGF:</strong> cargá al menos 2 períodos para ver en qué AGFs las compañías de seguros están aumentando o reduciendo su inversión.
       </div>
     `}
 
@@ -5872,31 +5887,17 @@ function renderPulsoAmeris() {
       </div>
     </div>
 
-    <!-- Competidores directos + Oportunidades -->
-    <div class="grid-2" style="align-items:start">
-      <div class="card">
-        <div class="card-header"><div class="card-title">Competidores directos</div></div>
-        <div style="font-size:11.5px;color:var(--c-muted);padding:8px 14px 0">
-          AGFs vecinas a Ameris en el ranking. <strong style="color:#b91c1c">Rojo</strong> = está sobre nosotros · <strong style="color:#047857">Verde</strong> = está bajo.
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Rank</th><th>AGF</th><th class="num">AUM</th><th class="num">Clientes</th><th class="num">Fondos</th><th class="num">Diferencia</th></tr></thead>
-            <tbody>${competitorRows || '<tr><td colspan="6" class="empty-state">Sin competidores cercanos</td></tr>'}</tbody>
-          </table>
-        </div>
+    <!-- Oportunidades comerciales -->
+    <div class="card">
+      <div class="card-header"><div class="card-title">Oportunidades comerciales</div></div>
+      <div style="font-size:11.5px;color:var(--c-muted);padding:8px 14px 0">
+        Aseguradoras con CFI pero <strong>sin posiciones Ameris</strong>. Más CFI total = más potencial de captura.
       </div>
-      <div class="card">
-        <div class="card-header"><div class="card-title">Oportunidades comerciales</div></div>
-        <div style="font-size:11.5px;color:var(--c-muted);padding:8px 14px 0">
-          Aseguradoras con CFI pero <strong>sin posiciones Ameris</strong>. Más CFI total = más potencial de captura.
-        </div>
-        <div class="table-wrap" style="max-height:60vh;overflow-y:auto">
-          <table>
-            <thead><tr><th>#</th><th>Aseguradora</th><th class="num">CFI total</th></tr></thead>
-            <tbody>${opportunityRows || '<tr><td colspan="3" class="empty-state">Todas las aseguradoras del sistema ya tienen Ameris</td></tr>'}</tbody>
-          </table>
-        </div>
+      <div style="max-height:60vh;overflow-y:auto;border-top:1px solid var(--c-border)">
+        <table style="width:100%">
+          <thead style="position:sticky;top:0;background:#f8fafc;z-index:1"><tr><th>#</th><th>Aseguradora</th><th class="num">CFI total</th></tr></thead>
+          <tbody>${opportunityRows || '<tr><td colspan="3" class="empty-state">Todas las aseguradoras del sistema ya tienen Ameris</td></tr>'}</tbody>
+        </table>
       </div>
     </div>
   `;
