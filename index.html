@@ -304,6 +304,35 @@
     box-shadow: 0 4px 10px rgba(31,68,197,.32) !important;
   }
   .btn-drill::after { content: " →"; opacity: .85; }
+
+  /* Mini-toast: feedback breve de acciones (corrección aplicada,
+     exportar, sincronizar, etc.). Aparece arriba-derecha, autocierre. */
+  .toast-success {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    z-index: 9998;
+    background: linear-gradient(135deg, #047857 0%, #065f46 100%);
+    color: white;
+    padding: 10px 18px;
+    border-radius: 10px;
+    box-shadow: 0 6px 18px rgba(4,120,87,.32);
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    animation: toast-in .25s ease-out, toast-out .25s ease-in 2.5s forwards;
+  }
+  .toast-success::before { content: "✓"; font-size: 16px; }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes toast-out {
+    from { opacity: 1; }
+    to { opacity: 0; transform: translateY(-8px); }
+  }
   /* Tabs — pill style with cyan underline */
   .tabs {
     display: flex;
@@ -5518,6 +5547,7 @@ function _wireQualityActions() {
       a.download = `cmf-correcciones-${new Date().toISOString().slice(0,10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
+      showSuccessToast('Correcciones exportadas');
     });
   }
   // Importar correcciones (merge)
@@ -5535,8 +5565,8 @@ function _wireQualityActions() {
         const importedIgnore = incoming.rutMismatchIgnore || [];
         USER_OVERRIDES.rutMismatchIgnore = Array.from(new Set([...USER_OVERRIDES.rutMismatchIgnore, ...importedIgnore]));
         saveUserOverrides(USER_OVERRIDES);
-        alert(`Importadas correcciones desde ${file.name}. Se aplicaron automáticamente.`);
         renderAll();
+        showSuccessToast(`Correcciones importadas desde ${file.name}`);
       } catch (err) {
         alert('Error al leer el archivo: ' + err.message);
       }
@@ -5551,6 +5581,7 @@ function _wireQualityActions() {
       USER_OVERRIDES = { nemoNames: {}, rutAgfs: {}, rutMismatchIgnore: [] };
       saveUserOverrides(USER_OVERRIDES);
       renderAll();
+      showSuccessToast('Correcciones eliminadas');
     });
   }
   // Sincronizar correcciones comunitarias (re-fetch del servidor)
@@ -5567,7 +5598,7 @@ function _wireQualityActions() {
                   + Object.keys(COMMUNITY_OVERRIDES.rutAgfs).length
                   + COMMUNITY_OVERRIDES.rutMismatchIgnore.length;
       renderAll();
-      setTimeout(() => alert(`Sincronización completa. ${after} corrección${after !== 1 ? 'es' : ''} activa${after !== 1 ? 's' : ''}${after !== before ? ` (${after - before > 0 ? '+' : ''}${after - before} respecto a antes).` : '.'}`), 50);
+      showSuccessToast(`Sincronizado · ${after} corrección${after !== 1 ? 'es' : ''} activa${after !== 1 ? 's' : ''}${after !== before ? ` (${after - before > 0 ? '+' : ''}${after - before})` : ''}`);
     });
   }
 }
@@ -5586,6 +5617,7 @@ function _openCorrectionPrompt(kind, key, current) {
     USER_OVERRIDES.rutMismatchIgnore = Array.from(new Set([...USER_OVERRIDES.rutMismatchIgnore, key]));
     saveUserOverrides(USER_OVERRIDES);
     renderAll();
+    showSuccessToast('Alerta silenciada');
     return;
   } else {
     return;
@@ -5602,6 +5634,7 @@ function _openCorrectionPrompt(kind, key, current) {
   }
   saveUserOverrides(USER_OVERRIDES);
   renderAll();
+  showSuccessToast(trimmed ? 'Corrección guardada' : 'Corrección eliminada');
 }
 
 
@@ -6452,6 +6485,18 @@ function setupDropzone() {
    TABS + EVENTS
    ======================================================================= */
 
+// Mini-toast de éxito que aparece 2.5s arriba-derecha y se autocierra.
+function showSuccessToast(message) {
+  // Reemplazar toast previo si existe (evita stacking)
+  const prev = document.querySelector('.toast-success');
+  if (prev) prev.remove();
+  const t = document.createElement('div');
+  t.className = 'toast-success';
+  t.textContent = message;
+  document.body.appendChild(t);
+  setTimeout(() => { if (document.body.contains(t)) t.remove(); }, 2900);
+}
+
 function setupTabs() {
   document.querySelectorAll('.tab').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -6551,8 +6596,12 @@ function setupControls() {
     STATE.errors = [];
     localStorage.removeItem(STORAGE_KEY);
     renderAll();
+    showSuccessToast('Archivos eliminados');
   });
-  document.getElementById('btn-export-csv').addEventListener('click', () => exportCSV());
+  document.getElementById('btn-export-csv').addEventListener('click', () => {
+    exportCSV();
+    showSuccessToast('CSV descargado');
+  });
   setupGlobalSearch();
   // Help panel toggle
   const helpBtn = document.getElementById('btn-help');
