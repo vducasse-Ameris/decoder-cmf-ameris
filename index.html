@@ -1351,7 +1351,7 @@
 </div>
 
 <!-- Embedded mappings (RUT_AGF_MAP, NEMO_NAME_MAP) -->
-<script src="maps.js?v=2026-05-14c"></script>
+<script src="maps.js?v=2026-05-14d"></script>
 <!-- Datos AUM sistema asegurador chileno (CMF · semestral · USD) -->
 <script src="insurer_aum_data.js?v=2026-05-12a"></script>
 <!-- Tabla autoritativa nemo → administradora real + nombre fondo (de NOMBRE_EMISOR B.5) -->
@@ -2669,7 +2669,8 @@ function aggregateByAGF(holdings) {
 function nemoDisplay(rec) {
   const friendly = rec.nemoFriendly;
   const nemo = rec.nemo;
-  const conflictBadge = rec.agfMismatch
+  const silenced = window.RUT_MISMATCH_IGNORE && window.RUT_MISMATCH_IGNORE.has(nemo);
+  const conflictBadge = (rec.agfMismatch && !silenced)
     ? `<span class="conflict-badge" title="RUT registrado en archivo apunta a '${escapeHtml(rec.agfFromRut || '')}', pero el NOMBRE_EMISOR dice que la administradora real es '${escapeHtml(rec.agf || '')}'. Hay un error de filing de la compañía de seguros. El dashboard usa el dato del NOMBRE_EMISOR (autoritativo).">⚠ RUT errado</span>`
     : '';
   if (friendly && friendly !== nemo) {

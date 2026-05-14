@@ -274,12 +274,20 @@ window.RUT_AGF_MAP = {
   "981677108-8": "Daedalus I Fund LP"
 };
 
+// Nemos cuyo "⚠ RUT errado" debe silenciarse: el mismatch detectado entre
+// RUT_AGF_MAP y NOMBRE_EMISOR ha sido revisado y NO es un error de filing.
+window.RUT_MISMATCH_IGNORE = new Set([
+  "CFIHYUF-I",
+]);
+
 window.NEMO_NAME_MAP = {
   // Overrides manuales para nemos CFI* que el scraper de Bolsa no logró capturar.
   // Tienen prioridad sobre NEMO_AUTHORITY (que extrae del NOMBRE_EMISOR truncado de B.5).
   "CFIMOP9I-E": "Moneda Alturas II Fondo de Inversión",
   "CFILVLEQ-E": "Larraín Vial Landmark Equity XVI Fondo de Inversión",
   "CFIGCPXI-E": "Moneda DCP XI Fondo de Inversión",
+  "CFIMOP8I-E": "Moneda Carlyle Asia Partners V Fondo de Inversión",
+  "CFIMOP8A-E": "Moneda Carlyle Partners VII Fondo de Inversión",
 
   "LTM": "LATAM Airlines (LTM)",
   "CHILE": "Banco de Chile S.A.",
