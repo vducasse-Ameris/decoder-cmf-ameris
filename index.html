@@ -1291,7 +1291,6 @@
     <button class="tab active" data-tab="general" role="tab" title="Vista panorámica del sistema: KPIs, distribución por categoría, top AGFs y top compañías">Resumen General</button>
     <button class="tab" data-tab="agf" role="tab" title="Análisis agrupado por AGF/Emisor con drill-down al detalle por fondo y compañía cliente">Por AGF / Emisor</button>
     <button class="tab" data-tab="insurer" role="tab" title="Detalle de la cartera de cada compañía de seguros, agrupado por categoría">Por Compañía de Seguros</button>
-    <button class="tab" data-tab="instruments" role="tab" title="Listado consolidado de todos los instrumentos únicos (acciones y fondos)">Instrumentos</button>
     <button class="tab" data-tab="evolucion" role="tab" title="Evolución mes a mes con sparklines, gráfico de tendencia y top movers">Evolución</button>
     <button class="tab" data-tab="extranjero" role="tab" title="Inversión en el extranjero (archivos B.5): bonos, fondos y acciones extranjeras">Extranjero (B.5)</button>
     <button class="tab tab-ameris" data-tab="pulso" role="tab" title="Análisis específico para Ameris AGF: AUM, ranking, market share, concentración, tendencias">Pulso Ameris</button>
@@ -1312,11 +1311,6 @@
     <!-- TAB: BY INSURER -->
     <section class="tab-panel" id="tab-insurer">
       <div id="insurer-content"></div>
-    </section>
-
-    <!-- TAB: INSTRUMENTS -->
-    <section class="tab-panel" id="tab-instruments">
-      <div id="instruments-content"></div>
     </section>
 
     <!-- TAB: EVOLUCIÓN -->
@@ -3204,6 +3198,157 @@ function renderGeneral() {
     const top5Sum = companies.slice(0, 5).reduce((s, c) => s + c.valLibro, 0);
     const top5Share = top5Sum / totalLast * 100;
 
+    // ============== TOP 5 FONDOS MÁS INVERTIDOS POR CÍAS. ==============
+    // Agregamos por (nemo + serie) el Val. Libro y cuántas compañías
+    // lo tienen. Útil para identificar fondos "estrella" del sistema.
+    const fundAggLast = aggregateByInstrument(lastPeriodHs);
+    const fundAggPrev = prevPeriod ? aggregateByInstrument(prevPeriodHs) : [];
+    const prevFundByKey = new Map(fundAggPrev.map(f => [f.nemo + '||' + f.serie, f]));
+    const fundsRanked = fundAggLast
+      .map(f => {
+        const key = f.nemo + '||' + f.serie;
+        const prev = prevFundByKey.get(key);
+        // Cuántas cías. tienen este fondo
+        const cias = new Set(lastPeriodHs
+          .filter(h => h.nemo === f.nemo && h.serie === f.serie)
+          .map(h => h.insurerRut)).size;
+        const deltaAbs = prev ? f.valLibro - prev.valLibro : f.valLibro;
+        const deltaPct = (prev && prev.valLibro > 0) ? (f.valLibro / prev.valLibro - 1) : null;
+        const isNew = !prev;
+        return { ...f, cias, prev, deltaAbs, deltaPct, isNew };
+      })
+      .sort((a, b) => b.valLibro - a.valLibro);
+
+    const top5Funds = fundsRanked.slice(0, 5);
+    const top5FundRows = top5Funds.map((f, i) => {
+      const nameDisplay = friendlyForNemo(f.nemo) || f.nemo;
+      const deltaCell = f.deltaPct === null
+        ? '<span style="color:var(--c-muted)">— (nuevo)</span>'
+        : `<span class="num ${f.deltaPct > 0 ? 'pos' : 'neg'}">${f.deltaPct > 0 ? '+' : ''}${(f.deltaPct * 100).toFixed(1)}%</span>`;
+      return `
+      <tr>
+        <td>${i+1}</td>
+        <td>
+          <strong>${escapeHtml(nameDisplay)}</strong>
+          ${f.serie ? `<span style="color:var(--c-muted);font-size:11px"> · Serie ${escapeHtml(f.serie)}</span>` : ''}
+          <br><span style="color:var(--c-muted);font-size:10.5px;font-family:monospace">${escapeHtml(f.nemo)}</span>
+        </td>
+        <td>${escapeHtml(f.agf || '—')}</td>
+        <td class="num">${f.cias}</td>
+        <td class="num">${fmtMoney(f.valLibro)}</td>
+        <td class="num">${(f.valLibro / totalLast * 100).toFixed(1)}%</td>
+        <td>${prevPeriod ? deltaCell : '—'}</td>
+      </tr>`;
+    }).join('');
+
+    // ============== ALERTAS ==============
+    // 1) Fondos que más crecieron en val. absoluto vs período anterior
+    // 2) Fondos NUEVOS (no estaban en período anterior) — sobre todo si es de una AGF nueva en la cartera
+    let alertsBlock = '';
+    if (prevPeriod) {
+      // Detectar AGFs que ya existían en el período anterior (para distinguir fondo nuevo de AGF nueva)
+      const prevAgfRuts = new Set(prevPeriodHs.map(h => canonicalAgfRut(h.rutAdm || h.rutEmisor)).filter(Boolean));
+
+      // Crecimiento destacado: top movers por delta absoluto (filtrado a fondos que YA existían)
+      const fundGrowers = fundsRanked
+        .filter(f => !f.isNew && f.deltaAbs > 0)
+        .sort((a, b) => b.deltaAbs - a.deltaAbs)
+        .slice(0, 5);
+
+      // Fondos NUEVOS aparecidos por primera vez
+      const newFunds = fundsRanked
+        .filter(f => f.isNew && f.valLibro > 0)
+        .sort((a, b) => b.valLibro - a.valLibro);
+
+      const newFundsFromNewAgf = newFunds.filter(f => {
+        const aRut = canonicalAgfRut(f.agfRut || '');
+        return aRut && !prevAgfRuts.has(aRut);
+      });
+
+      const growerRows = fundGrowers.map(f => {
+        const name = friendlyForNemo(f.nemo) || f.nemo;
+        return `<tr>
+          <td><strong>${escapeHtml(name)}</strong>${f.serie ? ` · Serie ${escapeHtml(f.serie)}` : ''}</td>
+          <td>${escapeHtml(f.agf || '—')}</td>
+          <td class="num">${fmtMoney(f.valLibro)}</td>
+          <td class="num pos">+${fmtMoney(f.deltaAbs)}</td>
+          <td class="num pos">${f.deltaPct === null ? '—' : `+${(f.deltaPct * 100).toFixed(1)}%`}</td>
+        </tr>`;
+      }).join('');
+
+      const newFundRows = newFunds.slice(0, 8).map(f => {
+        const name = friendlyForNemo(f.nemo) || f.nemo;
+        const fromNewAgf = newFundsFromNewAgf.some(n => n.nemo === f.nemo && n.serie === f.serie);
+        return `<tr ${fromNewAgf ? 'style="background:#fef3c7"' : ''}>
+          <td>
+            <strong>${escapeHtml(name)}</strong>${f.serie ? ` · Serie ${escapeHtml(f.serie)}` : ''}
+            ${fromNewAgf ? ' <span style="background:#dc2626;color:white;font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:3px;letter-spacing:0.3px">AGF NUEVA</span>' : ''}
+          </td>
+          <td>${escapeHtml(f.agf || '—')}</td>
+          <td class="num">${f.cias}</td>
+          <td class="num">${fmtMoney(f.valLibro)}</td>
+        </tr>`;
+      }).join('');
+
+      const hasAlerts = fundGrowers.length > 0 || newFunds.length > 0;
+      alertsBlock = hasAlerts ? `
+        <h3 style="margin:30px 0 14px;color:var(--c-ameris-navy);font-size:16px;font-weight:700;letter-spacing:-.3px">🚨 Alertas · ${prevPeriod} → ${lastPeriod}</h3>
+        <div class="grid-2 equal-height">
+          ${fundGrowers.length > 0 ? `
+          <div class="card" style="border-left:4px solid #16a34a">
+            <div class="card-header" style="background:linear-gradient(135deg,#16a34a 0%,#15803d 100%)">
+              <div class="card-title">📈 Fondos que más crecieron</div>
+            </div>
+            <div style="padding:8px 14px 0;font-size:11.5px;color:var(--c-muted)">
+              Top 5 fondos con mayor crecimiento absoluto en Val. Libro entre períodos.
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Fondo</th><th>AGF</th><th class="num">Val. Libro</th><th class="num">Δ abs.</th><th class="num">Δ %</th></tr></thead>
+                <tbody>${growerRows}</tbody>
+              </table>
+            </div>
+          </div>` : ''}
+          ${newFunds.length > 0 ? `
+          <div class="card" style="border-left:4px solid #dc2626">
+            <div class="card-header" style="background:linear-gradient(135deg,#dc2626 0%,#b91c1c 100%)">
+              <div class="card-title">🆕 Fondos nuevos · ${newFunds.length} ${newFundsFromNewAgf.length > 0 ? `(${newFundsFromNewAgf.length} de AGFs nuevas)` : ''}</div>
+            </div>
+            <div style="padding:8px 14px 0;font-size:11.5px;color:var(--c-muted)">
+              Fondos que aparecen por primera vez en ${lastPeriod}. ${newFundsFromNewAgf.length > 0 ? '<strong style="color:#dc2626">Filas amarillas: AGF que no aparecía antes</strong> (apertura de relación con nueva administradora).' : ''}
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Fondo</th><th>AGF</th><th class="num">Cías.</th><th class="num">Val. Libro</th></tr></thead>
+                <tbody>${newFundRows}</tbody>
+              </table>
+            </div>
+          </div>` : ''}
+        </div>
+      ` : '';
+    }
+
+    const top5FundsBlock = `
+      <h3 style="margin:30px 0 14px;color:var(--c-ameris-navy);font-size:16px;font-weight:700;letter-spacing:-.3px">⭐ Top 5 fondos más invertidos por compañías · ${lastPeriod}</h3>
+      <div class="card">
+        <div style="padding:10px 14px 0;font-size:11.5px;color:var(--c-muted)">
+          Ranking de fondos por Val. Libro total agregado entre todas las compañías de seguros. Δ vs ${prevPeriod || 'período anterior'}.
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>#</th><th>Fondo</th><th>AGF</th>
+              <th class="num">Cías. inv.</th>
+              <th class="num">Val. Libro</th>
+              <th class="num">% sist.</th>
+              <th>Δ %</th>
+            </tr></thead>
+            <tbody>${top5FundRows || '<tr><td colspan="7" class="empty-state">Sin datos</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
     macroSections = `
       <div class="card" style="background:linear-gradient(135deg,#EAF2FD 0%,#E0FAFC 100%);border-color:var(--c-ameris-cyan)">
         <div class="card-header" style="background:linear-gradient(135deg,var(--c-ameris-blue) 0%,var(--c-ameris-navy) 100%)">
@@ -3255,6 +3400,10 @@ function renderGeneral() {
       </div>
 
       ${moversBlock}
+
+      ${top5FundsBlock}
+
+      ${alertsBlock || ''}
     `;
   }
 
@@ -5858,7 +6007,6 @@ function renderActiveTab() {
     case 'general':     renderGeneral(); break;
     case 'agf':         renderAGF(); break;
     case 'insurer':     renderInsurer(); break;
-    case 'instruments': renderInstruments(); break;
     case 'evolucion':   renderEvolucion(); break;
     case 'extranjero':  renderExtranjero(); break;
     case 'quality':     renderQuality(); break;
