@@ -3011,11 +3011,10 @@ function renderGeneral() {
   const agfList = aggregateByAGF(hs);
   const insList = aggregateByInsurer(hs);
 
-  // Category breakdown (by Val. Libro)
-  const catMap = {};
-  for (const h of hs) catMap[h.category] = (catMap[h.category] || 0) + h.valLibro;
-  const catEntries = Object.entries(catMap).sort((a,b) => b[1]-a[1]);
-  const totalCat = catEntries.reduce((s,[,v])=>s+v,0) || 1;
+  // NOTA: para que los Val. Libro coincidan con el panel "Por Compañía"
+  // (que muestra el último período), las tablas Top 15 y Distribución
+  // de abajo se calculan sobre `lastPeriodHs`, no sobre el agregado `hs`
+  // (que sumaría todos los períodos cargados y daría números inflados).
 
   // Cálculo de períodos cargados: si hay 2+ podemos mostrar deltas
   const periodsLoaded = allPeriods();  // ordenados asc
@@ -3061,9 +3060,19 @@ function renderGeneral() {
     </div>
   `;
 
-  // Category breakdown
-  const catRows = catEntries.map(([cat, v]) => {
-    const pct = (v / totalCat) * 100;
+  // === Tablas inferiores: TODAS sobre el último período ===
+  // Antes sumaban TODOS los períodos cargados (números inflados que no
+  // coincidían con el panel Por Compañía). Ahora son consistentes.
+  const catMapLast = {};
+  for (const h of lastPeriodHs) catMapLast[h.category] = (catMapLast[h.category] || 0) + h.valLibro;
+  const catEntriesLast = Object.entries(catMapLast).sort((a, b) => b[1] - a[1]);
+  const totalCatLast = catEntriesLast.reduce((s, [, v]) => s + v, 0) || 1;
+  const agfListLast = aggregateByAGF(lastPeriodHs);
+  const insListLast = aggregateByInsurer(lastPeriodHs);
+
+  // Category breakdown (último período)
+  const catRows = catEntriesLast.map(([cat, v]) => {
+    const pct = (v / totalCatLast) * 100;
     return `<tr>
       <td>${escapeHtml(cat)}</td>
       <td class="num">${fmtMoney(v)}</td>
@@ -3071,8 +3080,8 @@ function renderGeneral() {
     </tr>`;
   }).join('');
 
-  // Top 15 AGFs (by Val. Libro)
-  const topAGFRows = agfList.slice(0, 15).map((a, i) => `
+  // Top 15 AGFs (último período)
+  const topAGFRows = agfListLast.slice(0, 15).map((a, i) => `
     <tr>
       <td>${i+1}</td>
       <td><strong>${escapeHtml(a.agf)}</strong><br><span style="color:var(--c-muted);font-size:11px">RUT ${fmtRut(a.rut)}</span></td>
@@ -3083,8 +3092,8 @@ function renderGeneral() {
     </tr>
   `).join('');
 
-  // Top 15 insurers (by Val. Libro)
-  const topInsRows = insList.slice(0, 15).map((c, i) => `
+  // Top 15 insurers (último período)
+  const topInsRows = insListLast.slice(0, 15).map((c, i) => `
     <tr>
       <td>${i+1}</td>
       <td><strong>${escapeHtml(c.name)}</strong><br><span style="color:var(--c-muted);font-size:11px">${fmtRut(c.rut)}</span></td>
@@ -3256,11 +3265,11 @@ function renderGeneral() {
     ${kpis}
     ${macroSections}
 
-    <h3 style="margin:30px 0 14px;color:var(--c-ameris-navy);font-size:16px;font-weight:700;letter-spacing:-.3px">📂 Resumen agregado · todos los períodos cargados</h3>
+    <h3 style="margin:30px 0 14px;color:var(--c-ameris-navy);font-size:16px;font-weight:700;letter-spacing:-.3px">📂 Detalle · ${lastPeriod}</h3>
 
     <div class="grid-2 equal-height">
       <div class="card">
-        <div class="card-header"><div class="card-title">Distribución por categoría</div></div>
+        <div class="card-header"><div class="card-title">Distribución por categoría · ${lastPeriod}</div></div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Categoría</th><th class="num" title="VALOR_LIBRO total — valor contable de las posiciones en pesos chilenos">Val. Libro</th><th>% del total</th></tr></thead>
@@ -3269,7 +3278,7 @@ function renderGeneral() {
         </div>
       </div>
       <div class="card">
-        <div class="card-header"><div class="card-title">Top 15 AGFs en la cartera</div></div>
+        <div class="card-header"><div class="card-title">Top 15 AGFs · ${lastPeriod}</div></div>
         <div class="table-wrap">
           <table>
             <thead><tr>
@@ -3283,7 +3292,7 @@ function renderGeneral() {
       </div>
     </div>
     <div class="card">
-      <div class="card-header"><div class="card-title">Top 15 Compañías de Seguros · CFI cargado</div></div>
+      <div class="card-header"><div class="card-title">Top 15 Compañías de Seguros · ${lastPeriod}</div></div>
       <div class="table-wrap">
         <table>
           <thead><tr>
