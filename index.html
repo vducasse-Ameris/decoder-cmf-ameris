@@ -1293,7 +1293,6 @@
     <button class="tab" data-tab="instruments" role="tab" title="Listado consolidado de todos los instrumentos únicos (acciones y fondos)">Instrumentos</button>
     <button class="tab" data-tab="evolucion" role="tab" title="Evolución mes a mes con sparklines, gráfico de tendencia y top movers">Evolución</button>
     <button class="tab" data-tab="extranjero" role="tab" title="Inversión en el extranjero (archivos B.5): bonos, fondos y acciones extranjeras">Extranjero (B.5)</button>
-    <button class="tab" data-tab="quality" role="tab" title="Auditoría de los datos cargados: nemos sin nombre, AGFs no mapeadas, posibles truncamientos y conflictos">Calidad de datos</button>
     <button class="tab tab-ameris" data-tab="pulso" role="tab" title="Análisis específico para Ameris AGF: AUM, ranking, market share, concentración, tendencias">Pulso Ameris</button>
   </nav>
 
@@ -1352,6 +1351,7 @@
     <div class="credits">
       <span>Ameris AGF · Herramienta interna · v1.2</span>
       <span class="contact">Av. El Golf 82, Piso 5, Las Condes, Santiago · <a href="mailto:contacto@ameris.cl">contacto@ameris.cl</a></span>
+      <a href="#" id="quality-link" style="color:var(--c-muted);font-size:11px;text-decoration:none" title="Auditoría de los datos cargados: nemos sin nombre, AGFs no mapeadas, posibles truncamientos y conflictos">⚙ Calidad de datos</a>
     </div>
   </footer>
 </div>
@@ -5514,6 +5514,20 @@ function setupTabs() {
       renderActiveTab();
     });
   });
+
+  // Link discreto de "Calidad de datos" en el footer: muestra el panel
+  // sin agregar una tab visible en la barra principal.
+  const qualityLink = document.getElementById('quality-link');
+  if (qualityLink) {
+    qualityLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById('tab-quality').classList.add('active');
+      renderQuality();
+      document.getElementById('tab-quality').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
 }
 
 function renderActiveTab() {
