@@ -1,0 +1,21 @@
+{
+  "name": "Decoder CMF · Ameris AGF",
+  "short_name": "Decoder CMF",
+  "description": "Decodificador de archivos B.2 y B.5 de la CMF · análisis de carteras de compañías de seguros chilenas.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6fa",
+  "theme_color": "#0A2B5E",
+  "orientation": "any",
+  "lang": "es-CL",
+  "icons": [
+    {
+      "src": "favicon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["finance", "business", "productivity"]
+}
