@@ -1905,10 +1905,37 @@ let STATE = {
 //  2) NEMO_NAME_MAP — curado manual en maps.js
 //  3) NEMO_AUTHORITY — extraído del NOMBRE_EMISOR de archivos B.5
 //  4) null
+// Overrides del usuario guardados en localStorage. Permiten que cualquier
+// usuario corrija nombres/AGFs/mismatches desde el panel Calidad de datos
+// sin tener que editar código. Persisten entre sesiones.
+const USER_OVERRIDES_KEY = 'cmf-dashboard.userOverrides.v1';
+function loadUserOverrides() {
+  try {
+    const raw = localStorage.getItem(USER_OVERRIDES_KEY);
+    if (!raw) return { nemoNames: {}, rutAgfs: {}, rutMismatchIgnore: [] };
+    const obj = JSON.parse(raw);
+    return {
+      nemoNames: obj.nemoNames || {},
+      rutAgfs: obj.rutAgfs || {},
+      rutMismatchIgnore: obj.rutMismatchIgnore || [],
+    };
+  } catch {
+    return { nemoNames: {}, rutAgfs: {}, rutMismatchIgnore: [] };
+  }
+}
+function saveUserOverrides(o) {
+  try { localStorage.setItem(USER_OVERRIDES_KEY, JSON.stringify(o)); } catch {}
+}
+// Cache en memoria — re-leído cada vez que se modifica
+let USER_OVERRIDES = loadUserOverrides();
+
 function friendlyForNemo(nemo) {
   if (!nemo) return nemo;
   let name = null;
-  if (window.BOLSA_OVERRIDES && window.BOLSA_OVERRIDES[nemo] && window.BOLSA_OVERRIDES[nemo].f) {
+  // Prioridad 0: override del usuario (máxima — el usuario sabe mejor)
+  if (USER_OVERRIDES.nemoNames && USER_OVERRIDES.nemoNames[nemo]) {
+    name = USER_OVERRIDES.nemoNames[nemo];
+  } else if (window.BOLSA_OVERRIDES && window.BOLSA_OVERRIDES[nemo] && window.BOLSA_OVERRIDES[nemo].f) {
     name = window.BOLSA_OVERRIDES[nemo].f;
   } else if (window.NEMO_NAME_MAP && window.NEMO_NAME_MAP[nemo]) {
     name = window.NEMO_NAME_MAP[nemo];
@@ -2019,6 +2046,9 @@ function canonicalAgfRut(rut) {
 }
 function canonicalAgfName(rut) {
   const cr = canonicalAgfRut(rut);
+  // Prioridad 0: override del usuario
+  if (USER_OVERRIDES.rutAgfs && USER_OVERRIDES.rutAgfs[rut]) return USER_OVERRIDES.rutAgfs[rut];
+  if (USER_OVERRIDES.rutAgfs && USER_OVERRIDES.rutAgfs[cr]) return USER_OVERRIDES.rutAgfs[cr];
   return (window.RUT_AGF_MAP && window.RUT_AGF_MAP[cr])
       || (window.RUT_AGF_MAP && window.RUT_AGF_MAP[rut])
       || `(RUT ${fmtRut(cr)})`;
@@ -2702,7 +2732,8 @@ function aggregateByAGF(holdings) {
 function nemoDisplay(rec) {
   const friendly = rec.nemoFriendly;
   const nemo = rec.nemo;
-  const silenced = window.RUT_MISMATCH_IGNORE && window.RUT_MISMATCH_IGNORE.has(nemo);
+  const userIgnored = USER_OVERRIDES.rutMismatchIgnore && USER_OVERRIDES.rutMismatchIgnore.includes(nemo);
+  const silenced = userIgnored || (window.RUT_MISMATCH_IGNORE && window.RUT_MISMATCH_IGNORE.has(nemo));
   const conflictBadge = (rec.agfMismatch && !silenced)
     ? `<span class="conflict-badge" title="RUT registrado en archivo apunta a '${escapeHtml(rec.agfFromRut || '')}', pero el NOMBRE_EMISOR dice que la administradora real es '${escapeHtml(rec.agf || '')}'. Hay un error de filing de la compañía de seguros. El dashboard usa el dato del NOMBRE_EMISOR (autoritativo).">⚠ RUT errado</span>`
     : '';
@@ -4839,7 +4870,11 @@ function computeQualityIssues() {
   const unmappedAgfs = groupBy(
     all.filter(r => {
       const rut = r.rutAdm || r.rutEmisor;
-      return rut && (!window.RUT_AGF_MAP || !window.RUT_AGF_MAP[rut]);
+      if (!rut) return false;
+      // Excluir los que tienen mapping oficial o user override
+      if (window.RUT_AGF_MAP && window.RUT_AGF_MAP[rut]) return false;
+      if (USER_OVERRIDES.rutAgfs && USER_OVERRIDES.rutAgfs[rut]) return false;
+      return true;
     }),
     r => r.rutAdm || r.rutEmisor,
     r => ({ nombreEmisor: r.nombreEmisor || r.agf })
@@ -4861,6 +4896,7 @@ function computeQualityIssues() {
     all.filter(r => {
       if (!r.agfMismatch) return false;
       if (window.RUT_MISMATCH_IGNORE && window.RUT_MISMATCH_IGNORE.has(r.nemo)) return false;
+      if (USER_OVERRIDES.rutMismatchIgnore && USER_OVERRIDES.rutMismatchIgnore.includes(r.nemo)) return false;
       return true;
     }),
     r => r.nemo,
@@ -4972,11 +5008,17 @@ function renderQuality() {
   const newBadge = (prefix, key) => isNew(prefix, key)
     ? ` <span style="background:#fbbf24;color:#78350f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;letter-spacing:0.3px">NUEVO</span>` : '';
 
+  // Botón ✏ para corregir. Cada tipo abre un prompt distinto y guarda el
+  // override en localStorage. La página se re-renderiza para mostrar la
+  // corrección aplicada.
+  const fixBtn = (kind, key, currentValue) =>
+    `<button class="btn btn-secondary qfix-btn" data-kind="${kind}" data-key="${escapeHtml(key)}" data-current="${escapeHtml(currentValue || '')}" style="padding:2px 8px;font-size:11px;margin-left:6px" title="Corregir y guardar">✏ Corregir</button>`;
+
   const checkNemoHTML = sectionHTML(
     'Check nemo',
     'Nemos que aparecen en los archivos cargados pero no tienen nombre amigable en BOLSA_OVERRIDES, NEMO_NAME_MAP ni NEMO_AUTHORITY. Para corregirlos: agregalos a NEMO_NAME_MAP en Dashboard/maps.js.',
     checkNemo,
-    `<th>Nemo</th><th>Tipo</th><th>AGF aparente</th><th class="num">Cías.</th><th class="num">Pos.</th><th class="num">Val. Libro</th>`,
+    `<th>Nemo</th><th>Tipo</th><th>AGF aparente</th><th class="num">Cías.</th><th class="num">Pos.</th><th class="num">Val. Libro</th><th>Acción</th>`,
     e => `<tr>
       <td><strong style="font-family:monospace">${escapeRow(e.key)}</strong>${newBadge('nemo', e.key)}</td>
       <td><span class="badge" style="background:#fee2e2;color:#991b1b">${escapeRow(e.extra.tipoInst)}</span></td>
@@ -4984,6 +5026,7 @@ function renderQuality() {
       <td class="num">${e.insurers.size}</td>
       <td class="num">${e.count}</td>
       <td class="num">${fmtUsd(e.valLibro)}</td>
+      <td>${fixBtn('nemo-name', e.key, '')}</td>
     </tr>`,
     'critical'
   );
@@ -4992,13 +5035,14 @@ function renderQuality() {
     'AGFs / Emisores sin mapear',
     'RUTs de administradoras o emisores presentes en los archivos pero ausentes de RUT_AGF_MAP. Para corregirlos: agregar la entry RUT → nombre canónico en Dashboard/maps.js.',
     unmappedAgfs,
-    `<th>RUT</th><th>NOMBRE_EMISOR aparente</th><th class="num">Cías.</th><th class="num">Pos.</th><th class="num">Val. Libro</th>`,
+    `<th>RUT</th><th>NOMBRE_EMISOR aparente</th><th class="num">Cías.</th><th class="num">Pos.</th><th class="num">Val. Libro</th><th>Acción</th>`,
     e => `<tr>
       <td><strong style="font-family:monospace">${escapeRow(fmtRut(e.key))}</strong>${newBadge('rut', e.key)}</td>
       <td>${escapeRow(e.extra.nombreEmisor)}</td>
       <td class="num">${e.insurers.size}</td>
       <td class="num">${e.count}</td>
       <td class="num">${fmtUsd(e.valLibro)}</td>
+      <td>${fixBtn('rut-agf', e.key, e.extra.nombreEmisor)}</td>
     </tr>`,
     'critical'
   );
@@ -5007,7 +5051,7 @@ function renderQuality() {
     'Nombres posiblemente truncados',
     'Nemos CFI* cuyo nombre resuelto (vía NEMO_AUTHORITY) parece cortado por el ancho fijo del campo NOMBRE_EMISOR del CMF. Para corregirlos: agregar override en NEMO_NAME_MAP, o re-correr el scraper.',
     possiblyTruncated,
-    `<th>Nemo</th><th>Nombre actual</th><th>AGF</th><th class="num">Cías.</th><th class="num">Pos.</th><th class="num">Val. Libro</th>`,
+    `<th>Nemo</th><th>Nombre actual</th><th>AGF</th><th class="num">Cías.</th><th class="num">Pos.</th><th class="num">Val. Libro</th><th>Acción</th>`,
     e => `<tr>
       <td><strong style="font-family:monospace">${escapeRow(e.key)}</strong>${newBadge('trunc', e.key)}</td>
       <td><em>${escapeRow(e.extra.name)}</em></td>
@@ -5015,6 +5059,7 @@ function renderQuality() {
       <td class="num">${e.insurers.size}</td>
       <td class="num">${e.count}</td>
       <td class="num">${fmtUsd(e.valLibro)}</td>
+      <td>${fixBtn('nemo-name', e.key, e.extra.name)}</td>
     </tr>`,
     'warn'
   );
@@ -5023,13 +5068,14 @@ function renderQuality() {
     'Conflictos RUT vs NOMBRE_EMISOR',
     'Posiciones donde el RUT_ADMINISTRADORA reportado por la compañía de seguros apunta a una AGF distinta de la que firma el NOMBRE_EMISOR. Si verificás que la alerta no aplica, agregá el nemo a RUT_MISMATCH_IGNORE en Dashboard/maps.js.',
     mismatches,
-    `<th>Nemo</th><th>AGF real (NOMBRE_EMISOR)</th><th>AGF del RUT registrado</th><th class="num">Cías.</th><th class="num">Pos.</th>`,
+    `<th>Nemo</th><th>AGF real (NOMBRE_EMISOR)</th><th>AGF del RUT registrado</th><th class="num">Cías.</th><th class="num">Pos.</th><th>Acción</th>`,
     e => `<tr>
       <td><strong style="font-family:monospace">${escapeRow(e.key)}</strong>${newBadge('mis', e.key)}</td>
       <td>${escapeRow(e.extra.agf)}</td>
       <td><em>${escapeRow(e.extra.agfFromRut)}</em></td>
       <td class="num">${e.insurers.size}</td>
       <td class="num">${e.count}</td>
+      <td>${fixBtn('ignore-mismatch', e.key, '')}</td>
     </tr>`,
     'warn'
   );
@@ -5045,6 +5091,31 @@ function renderQuality() {
   const totalIssues = checkNemo.length + unmappedAgfs.length + possiblyTruncated.length + mismatches.length;
   const allClean = totalIssues === 0;
 
+  // Contar overrides del usuario para mostrar en la barra de gestión
+  const userCount = Object.keys(USER_OVERRIDES.nemoNames).length
+                  + Object.keys(USER_OVERRIDES.rutAgfs).length
+                  + USER_OVERRIDES.rutMismatchIgnore.length;
+
+  const userBar = `
+    <div class="card" style="margin-bottom:16px;border-left:4px solid #4f46e5">
+      <div class="card-header"><div class="card-title">Tus correcciones</div></div>
+      <div style="padding:0 16px 14px">
+        <div style="color:var(--c-muted);font-size:12px;margin-bottom:10px">
+          Las correcciones que hagas se guardan en este navegador y se aplican automáticamente.
+          ${userCount > 0
+            ? `Actualmente tienes <strong>${userCount}</strong> corrección${userCount !== 1 ? 'es' : ''} activa${userCount !== 1 ? 's' : ''}.`
+            : 'Aún no has agregado ninguna corrección. Usa el botón <strong>✏ Corregir</strong> en las filas para empezar.'}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-secondary" id="quality-export" type="button" style="font-size:12px;padding:5px 12px" ${userCount === 0 ? 'disabled' : ''}>📤 Exportar correcciones (.json)</button>
+          <label class="btn btn-secondary" for="quality-import-file" style="font-size:12px;padding:5px 12px;cursor:pointer">📥 Importar correcciones (.json)</label>
+          <input type="file" id="quality-import-file" accept=".json" style="display:none">
+          ${userCount > 0 ? '<button class="btn btn-secondary" id="quality-reset" type="button" style="font-size:12px;padding:5px 12px;color:#dc2626">🗑 Borrar mis correcciones</button>' : ''}
+        </div>
+      </div>
+    </div>
+  `;
+
   container.innerHTML = `
     <div class="notice" style="border-left-color:${allClean ? '#16a34a' : '#d97706'}">
       <strong>Calidad de datos</strong> · Auditoría de los archivos cargados.
@@ -5052,11 +5123,106 @@ function renderQuality() {
         ? ' Todo limpio: nombres y AGFs resueltos correctamente.'
         : ` Se detectaron <strong>${totalIssues}</strong> situaciones a revisar. Mirá cada sección para los detalles.`}
     </div>
+    ${userBar}
     ${checkNemoHTML}
     ${unmappedAgfsHTML}
     ${truncatedHTML}
     ${mismatchesHTML}
   `;
+
+  _wireQualityActions();
+}
+
+// Conecta los handlers de los botones ✏ Corregir, Exportar e Importar.
+function _wireQualityActions() {
+  // Botones de corrección inline
+  document.querySelectorAll('.qfix-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const kind = btn.dataset.kind;
+      const key = btn.dataset.key;
+      const current = btn.dataset.current || '';
+      _openCorrectionPrompt(kind, key, current);
+    });
+  });
+  // Exportar correcciones
+  const exportBtn = document.getElementById('quality-export');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => {
+      const data = JSON.stringify(USER_OVERRIDES, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cmf-correcciones-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
+  // Importar correcciones (merge)
+  const importInput = document.getElementById('quality-import-file');
+  if (importInput) {
+    importInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const incoming = JSON.parse(text);
+        // Merge: las correcciones importadas se suman a las existentes
+        USER_OVERRIDES.nemoNames = { ...USER_OVERRIDES.nemoNames, ...(incoming.nemoNames || {}) };
+        USER_OVERRIDES.rutAgfs = { ...USER_OVERRIDES.rutAgfs, ...(incoming.rutAgfs || {}) };
+        const importedIgnore = incoming.rutMismatchIgnore || [];
+        USER_OVERRIDES.rutMismatchIgnore = Array.from(new Set([...USER_OVERRIDES.rutMismatchIgnore, ...importedIgnore]));
+        saveUserOverrides(USER_OVERRIDES);
+        alert(`Importadas correcciones desde ${file.name}. Se aplicaron automáticamente.`);
+        renderAll();
+      } catch (err) {
+        alert('Error al leer el archivo: ' + err.message);
+      }
+      e.target.value = '';
+    });
+  }
+  // Reset
+  const resetBtn = document.getElementById('quality-reset');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      if (!confirm('¿Borrar TODAS tus correcciones guardadas? Esta acción no se puede deshacer.')) return;
+      USER_OVERRIDES = { nemoNames: {}, rutAgfs: {}, rutMismatchIgnore: [] };
+      saveUserOverrides(USER_OVERRIDES);
+      renderAll();
+    });
+  }
+}
+
+// Abre un prompt para corregir el item indicado. Tras guardar, recarga el dashboard.
+function _openCorrectionPrompt(kind, key, current) {
+  let promptText, defaultValue;
+  if (kind === 'nemo-name') {
+    promptText = `Nombre correcto para el nemo ${key}:\n\n(Se mostrará en mayúsculas automáticamente. Ejemplo: "Larraín Vial Apollo Hybrid Value")`;
+    defaultValue = current || '';
+  } else if (kind === 'rut-agf') {
+    promptText = `Nombre de la AGF / Emisor con RUT ${key}:\n\n(Ejemplo: "Bain Capital Partners")`;
+    defaultValue = current || '';
+  } else if (kind === 'ignore-mismatch') {
+    if (!confirm(`¿Marcar el conflicto del nemo ${key} como "ya revisado / no aplica"?\n\nDejará de mostrarse la alerta ⚠ RUT errado para este nemo.`)) return;
+    USER_OVERRIDES.rutMismatchIgnore = Array.from(new Set([...USER_OVERRIDES.rutMismatchIgnore, key]));
+    saveUserOverrides(USER_OVERRIDES);
+    renderAll();
+    return;
+  } else {
+    return;
+  }
+  const value = window.prompt(promptText, defaultValue);
+  if (value === null) return;  // cancelado
+  const trimmed = value.trim();
+  if (kind === 'nemo-name') {
+    if (trimmed === '') delete USER_OVERRIDES.nemoNames[key];
+    else USER_OVERRIDES.nemoNames[key] = trimmed;
+  } else if (kind === 'rut-agf') {
+    if (trimmed === '') delete USER_OVERRIDES.rutAgfs[key];
+    else USER_OVERRIDES.rutAgfs[key] = trimmed;
+  }
+  saveUserOverrides(USER_OVERRIDES);
+  renderAll();
 }
 
 
