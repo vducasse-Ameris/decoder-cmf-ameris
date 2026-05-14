@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" sizes="180x180" href="favicon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     /* Ameris brand palette — values matched against corporate deck */
@@ -43,14 +43,23 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
-    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     color: var(--c-text);
     background: var(--c-bg);
     font-size: 13.5px;
-    line-height: 1.5;
+    font-weight: 400;
+    line-height: 1.55;
+    letter-spacing: -.005em;
     -webkit-font-smoothing: antialiased;
-    font-feature-settings: "tnum" 1; /* tabular numerals — nicer financial alignment */
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "tnum" 1, "cv11" 1; /* tabular numerals + slashed zero */
   }
+  /* Bold: usar 600 (semibold) en lugar de 700 (bold) por defecto para
+     una sensación más ligera/elegante. Reservar 700 para headlines. */
+  b, strong { font-weight: 600; }
+  /* Headers progresivos: h1 700, h2 700, h3 600, h4 600 */
+  h1, h2 { font-weight: 700; letter-spacing: -.02em; }
+  h3, h4 { font-weight: 600; letter-spacing: -.015em; }
   /* Header — Ameris brand banner with arching curves like the corporate deck cover */
   header.app-header {
     background:
@@ -621,14 +630,15 @@
     text-transform: uppercase;
     letter-spacing: 1px;
     margin-bottom: 6px;
-    font-weight: 600;
+    font-weight: 500;
   }
   .kpi .value {
-    font-size: 24px;
-    font-weight: 700;
+    font-size: 26px;
+    font-weight: 600;
     color: var(--c-ameris-navy);
-    line-height: 1.05;
-    letter-spacing: -.5px;
+    line-height: 1.1;
+    letter-spacing: -.025em;
+    font-variant-numeric: tabular-nums;
   }
   .kpi.accent .value { color: var(--c-ameris-blue); }
   .kpi .sublabel {
@@ -656,11 +666,11 @@
     gap: 10px;
     margin: 38px 0 16px;
     padding: 0 0 10px;
-    border-bottom: 2px solid var(--c-ameris-pale);
-    font-size: 16px;
-    font-weight: 700;
+    border-bottom: 1px solid var(--c-ameris-pale);
+    font-size: 15.5px;
+    font-weight: 600;
     color: var(--c-ameris-navy);
-    letter-spacing: -.3px;
+    letter-spacing: -.015em;
   }
   .section-heading::before {
     content: "";
@@ -696,9 +706,9 @@
   }
   .card-title {
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 600;
     color: white;
-    letter-spacing: .3px;
+    letter-spacing: .015em;
   }
   .card-header select, .card-header input { color: var(--c-text); }
   /* When a card contains a table-wrap, let it extend full width inside the card.
@@ -732,9 +742,9 @@
   }
   th {
     font-size: 10.5px;
-    font-weight: 700;
+    font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: .8px;
+    letter-spacing: .08em;
     color: var(--c-ameris-blue);
     background: #F4F7FC;
     cursor: pointer;
@@ -742,7 +752,7 @@
     position: sticky;
     top: 0;
     z-index: 1;
-    border-bottom: 2px solid var(--c-ameris-cyan);
+    border-bottom: 1px solid var(--c-ameris-cyan);
   }
   th .sort { font-size: 9px; margin-left: 4px; opacity: .5; }
   th.sorted .sort { opacity: 1; }
@@ -1376,7 +1386,7 @@
     <div class="stat-item"><span class="stat-num" id="stat-files">0</span><span class="stat-label">Archivos</span></div>
     <div class="stat-item"><span class="stat-num" id="stat-companies">0</span><span class="stat-label">Compañías</span></div>
     <div class="stat-item"><span class="stat-num" id="stat-period">—</span><span class="stat-label">Período</span></div>
-    <button class="help-btn" id="btn-help" type="button" title="Glosario de términos + cómo usar la herramienta">❓ Ayuda / Glosario</button>
+    <button class="help-btn" id="btn-help" type="button" title="Glosario de términos + cómo usar la herramienta">Ayuda / Glosario</button>
   </div>
 </header>
 <div class="accent-strip"></div>
@@ -1605,8 +1615,8 @@
     </div>
     <div class="right">
       <span class="ab-divider"></span>
-      <button class="btn btn-secondary" type="button" id="btn-quality" title="Auditoría de los datos cargados: nemos sin nombre, AGFs no mapeadas, posibles truncamientos y conflictos">🔍 Calidad de datos<span id="quality-badge" style="display:none;margin-left:6px;padding:1px 7px;border-radius:9px;background:#0891b2;color:white;font-size:10.5px;font-weight:700;line-height:14px;vertical-align:1px"></span></button>
-      <button class="btn btn-secondary" type="button" id="btn-export-pdf" title="Generar PDF del Resumen General (usa la función Imprimir del navegador → Guardar como PDF)">📄 PDF del Resumen</button>
+      <button class="btn btn-secondary" type="button" id="btn-quality" title="Auditoría de los datos cargados: nemos sin nombre, AGFs no mapeadas, posibles truncamientos y conflictos">Calidad de datos<span id="quality-badge" style="display:none;margin-left:6px;padding:1px 7px;border-radius:9px;background:#0891b2;color:white;font-size:10.5px;font-weight:700;line-height:14px;vertical-align:1px"></span></button>
+      <button class="btn btn-secondary" type="button" id="btn-export-pdf" title="Generar PDF del Resumen General (usa la función Imprimir del navegador → Guardar como PDF)">PDF del Resumen</button>
       <button class="btn btn-secondary" type="button" id="btn-export-csv" title="Descarga los datos visibles como archivo CSV (compatible con Excel)">Exportar CSV</button>
       <button class="btn btn-secondary" type="button" id="btn-clear" title="Borra todos los archivos cargados (acción no reversible)">Limpiar datos</button>
     </div>
@@ -2889,7 +2899,7 @@ function renderLineChart(periods, values, opts) {
     const v = yMin + (range * i / ticks);
     const y = padT + innerH - (innerH * i / ticks);
     gridLines.push(`<line x1="${padL}" y1="${y}" x2="${padL+innerW}" y2="${y}" stroke="#E3E8F1" stroke-width="1"/>`);
-    yLabels.push(`<text x="${padL-14}" y="${y+5}" text-anchor="end" font-size="14" fill="#5b6677" font-family="Poppins, sans-serif" font-weight="500">${fmtMoney(v)}</text>`);
+    yLabels.push(`<text x="${padL-14}" y="${y+5}" text-anchor="end" font-size="14" fill="#5b6677" font-family="Inter, sans-serif" font-weight="500">${fmtMoney(v)}</text>`);
   }
   const xs = values.map((_, i) => padL + (i / (values.length - 1)) * innerW);
   const ys = values.map(v => padT + innerH - ((v - yMin) / range) * innerH);
@@ -2899,7 +2909,7 @@ function renderLineChart(periods, values, opts) {
     // Render at most ~9 labels evenly distributed (avoids crowding for 13 months)
     const step = Math.max(1, Math.ceil(periods.length / 9));
     if (i % step !== 0 && i !== periods.length - 1) return '';
-    return `<text x="${xs[i]}" y="${H-16}" text-anchor="middle" font-size="14" fill="#5b6677" font-family="Poppins, sans-serif" font-weight="500">${fmtPeriod(p)}</text>`;
+    return `<text x="${xs[i]}" y="${H-16}" text-anchor="middle" font-size="14" fill="#5b6677" font-family="Inter, sans-serif" font-weight="500">${fmtPeriod(p)}</text>`;
   }).join('');
   const dots = xs.map((x, i) => `<circle cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="4.5" fill="#1F44C5" stroke="white" stroke-width="2"/>`).join('');
   return `<svg width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block; max-width:100%; height:auto">
@@ -2946,12 +2956,12 @@ function renderHorizontalBarChart(items, opts) {
       <g transform="translate(0,${y})">
         <text x="${labelW - 6}" y="${rowH/2 + 4}" text-anchor="end"
               font-size="11.5" font-weight="${labelWeight}" fill="${labelColor}"
-              font-family="Poppins, sans-serif">${trunc}</text>
+              font-family="Inter, sans-serif">${trunc}</text>
         <rect x="${labelW}" y="${rowH/2 - 9}" width="${Math.max(2, w)}" height="18"
               rx="3" fill="${fill}" />
         <text x="${labelW + Math.max(2, w) + 6}" y="${rowH/2 + 4}"
               font-size="11" font-weight="600" fill="${valueColor}"
-              font-family="Poppins, sans-serif">${item.valueLabel || fmtMoney(item.value)}</text>
+              font-family="Inter, sans-serif">${item.valueLabel || fmtMoney(item.value)}</text>
       </g>
     `;
   }).join('');
@@ -3021,9 +3031,9 @@ function renderDonutChart(items, opts) {
       <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="flex-shrink:0">
         ${slices}
         <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="12" font-weight="600"
-              fill="var(--c-muted)" font-family="Poppins, sans-serif">Total</text>
+              fill="var(--c-muted)" font-family="Inter, sans-serif">Total</text>
         <text x="${cx}" y="${cy + 12}" text-anchor="middle" font-size="13" font-weight="700"
-              fill="var(--c-ameris-navy)" font-family="Poppins, sans-serif">${fmtMoney(total)}</text>
+              fill="var(--c-ameris-navy)" font-family="Inter, sans-serif">${fmtMoney(total)}</text>
       </svg>
       <div style="flex:1;min-width:200px">${legend}</div>
     </div>
@@ -3499,7 +3509,7 @@ function renderGeneral() {
       moversBlock = `
         <div class="grid-2 equal-height">
           <div class="card">
-            <div class="card-header"><div class="card-title">📈 Compañías que más crecieron · ${prevPeriod} → ${lastPeriod}</div></div>
+            <div class="card-header"><div class="card-title">Compañías con mayor crecimiento · ${prevPeriod} → ${lastPeriod}</div></div>
             <div class="table-wrap">
               <table>
                 <thead><tr><th>Compañía</th><th class="num">Δ Val. Libro</th><th class="num">Δ %</th></tr></thead>
@@ -3508,7 +3518,7 @@ function renderGeneral() {
             </div>
           </div>
           <div class="card">
-            <div class="card-header"><div class="card-title">📉 Compañías que más decrecieron</div></div>
+            <div class="card-header"><div class="card-title">Compañías con mayor caída</div></div>
             <div class="table-wrap">
               <table>
                 <thead><tr><th>Compañía</th><th class="num">Δ Val. Libro</th><th class="num">Δ %</th></tr></thead>
@@ -3618,12 +3628,12 @@ function renderGeneral() {
 
       const hasAlerts = fundGrowers.length > 0 || newFunds.length > 0;
       alertsBlock = hasAlerts ? `
-        <h3 class="section-heading">🚨 Alertas · ${prevPeriod} → ${lastPeriod}</h3>
+        <h3 class="section-heading">Alertas · ${prevPeriod} → ${lastPeriod}</h3>
         <div class="grid-2 equal-height">
           ${fundGrowers.length > 0 ? `
           <div class="card" style="border-left:4px solid #16a34a">
             <div class="card-header" style="background:linear-gradient(135deg,#16a34a 0%,#15803d 100%)">
-              <div class="card-title">📈 Fondos que más crecieron</div>
+              <div class="card-title">Fondos con mayor crecimiento</div>
             </div>
             <div style="padding:8px 14px 0;font-size:11.5px;color:var(--c-muted)">
               Top 10 fondos con mayor crecimiento absoluto en Val. Libro entre períodos.
@@ -3638,7 +3648,7 @@ function renderGeneral() {
           ${newFunds.length > 0 ? `
           <div class="card" style="border-left:4px solid #dc2626">
             <div class="card-header" style="background:linear-gradient(135deg,#dc2626 0%,#b91c1c 100%)">
-              <div class="card-title">🆕 Fondos nuevos · ${newFunds.length} ${newFundsFromNewAgf.length > 0 ? `(${newFundsFromNewAgf.length} de AGFs nuevas)` : ''}</div>
+              <div class="card-title">Fondos nuevos · ${newFunds.length}${newFundsFromNewAgf.length > 0 ? ` (${newFundsFromNewAgf.length} de AGFs nuevas)` : ''}</div>
             </div>
             <div style="padding:8px 14px 0;font-size:11.5px;color:var(--c-muted)">
               Fondos que aparecen por primera vez en ${lastPeriod}. ${newFundsFromNewAgf.length > 0 ? '<strong style="color:#dc2626">Filas amarillas: AGF que no aparecía antes</strong> (apertura de relación con nueva administradora).' : ''}
@@ -3655,7 +3665,7 @@ function renderGeneral() {
     }
 
     const top5FundsBlock = `
-      <h3 class="section-heading">⭐ Top 5 fondos más invertidos por compañías · ${lastPeriod}</h3>
+      <h3 class="section-heading">Top 5 fondos más invertidos · ${lastPeriod}</h3>
       <div class="card">
         <div style="padding:10px 14px 0;font-size:11.5px;color:var(--c-muted)">
           Ranking de fondos por Val. Libro total agregado entre todas las compañías de seguros. Δ vs ${prevPeriod || 'período anterior'}.
@@ -3678,7 +3688,7 @@ function renderGeneral() {
     macroSections = `
       <div class="card" style="background:linear-gradient(135deg,#EAF2FD 0%,#E0FAFC 100%);border-color:var(--c-ameris-cyan)">
         <div class="card-header" style="background:linear-gradient(135deg,var(--c-ameris-blue) 0%,var(--c-ameris-navy) 100%)">
-          <div class="card-title">📊 Conclusiones de la cartera cargada (${lastPeriod})</div>
+          <div class="card-title">Conclusiones · ${lastPeriod}</div>
         </div>
         <div style="padding:16px 18px;font-size:13px;line-height:1.7">
           <div style="margin-bottom:8px"><strong style="color:var(--c-ameris-blue)">Concentración:</strong> Top 5 compañías (${companies.slice(0,5).map(c=>escapeHtml(c.name)).join(', ')}) concentran <strong>${top5Share.toFixed(1)}%</strong> del Val. Libro CFI cargado (${fmtMoney(top5Sum)} de ${fmtMoney(totalLast)}).</div>
@@ -3735,7 +3745,7 @@ function renderGeneral() {
 
   // Top 15 AGFs · sección única (no duplicada con macroSections)
   const top15AgfsBlock = `
-    <h3 class="section-heading">🏢 Top 15 AGFs · ${lastPeriod}</h3>
+    <h3 class="section-heading">Top 15 AGFs · ${lastPeriod}</h3>
     <div class="card">
       <div style="padding:10px 14px 0;font-size:11.5px;color:var(--c-muted)">
         Ranking de administradoras por Val. Libro del último período. Mostrando fondos administrados, cías. clientes y posiciones totales.
@@ -3770,7 +3780,7 @@ function renderAuditSection() {
   if (pending.length === 0) {
     return `
       <div class="card" style="background:#f0fdf4;border-left:4px solid #047857">
-        <div class="card-header" style="background:#047857"><div class="card-title">✅ Auditoría de nombres · todo en orden</div></div>
+        <div class="card-header" style="background:#047857"><div class="card-title">Auditoría de nombres · todo en orden</div></div>
         <div style="padding:16px;font-size:13px">
           Todos los nemotécnicos cargados tienen nombre amigable en <code>maps.js</code>. No hay nada que corregir.
         </div>
@@ -3813,10 +3823,10 @@ function renderAuditSection() {
   `).join('');
 
   return `
-    <h3 class="section-heading">🔍 Auditoría de nombres pendientes</h3>
+    <h3 class="section-heading">Auditoría de nombres pendientes</h3>
     <div class="card" style="border-left:4px solid #f59e0b">
       <div class="card-header" style="background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%)">
-        <div class="card-title">⚠️ Nemotécnicos sin nombre amigable en maps.js</div>
+        <div class="card-title">Nemotécnicos sin nombre amigable en maps.js</div>
       </div>
       <div style="padding:14px 18px;font-size:12.5px;line-height:1.6">
         <p style="margin:0 0 10px">
@@ -6110,14 +6120,14 @@ function renderPulsoAmeris() {
         </tr>`;
       };
       const insight = agfMovers.netFlow > 0
-        ? `<strong style="color:#047857">📈 Flujo neto positivo</strong> de <strong>${fmtMoney(agfMovers.netFlow)}</strong> entre ${fmtPeriod(agfMovers.prevP)} y ${fmtPeriod(agfMovers.lastP)}. Las compañías de seguros están <strong>aumentando</strong> su inversión total en fondos.`
+        ? `<strong style="color:#047857">Flujo neto positivo</strong> de <strong>${fmtMoney(agfMovers.netFlow)}</strong> entre ${fmtPeriod(agfMovers.prevP)} y ${fmtPeriod(agfMovers.lastP)}. Las compañías de seguros están <strong>aumentando</strong> su inversión total en fondos.`
         : agfMovers.netFlow < 0
-        ? `<strong style="color:#b91c1c">📉 Flujo neto negativo</strong> de <strong>${fmtMoney(Math.abs(agfMovers.netFlow))}</strong> entre ${fmtPeriod(agfMovers.prevP)} y ${fmtPeriod(agfMovers.lastP)}. Las compañías de seguros están <strong>reduciendo</strong> exposición a fondos.`
+        ? `<strong style="color:#b91c1c">Flujo neto negativo</strong> de <strong>${fmtMoney(Math.abs(agfMovers.netFlow))}</strong> entre ${fmtPeriod(agfMovers.prevP)} y ${fmtPeriod(agfMovers.lastP)}. Las compañías de seguros están <strong>reduciendo</strong> exposición a fondos.`
         : `Flujo neto cercano a cero entre ${fmtPeriod(agfMovers.prevP)} y ${fmtPeriod(agfMovers.lastP)}.`;
       return `
         <div class="card" style="border-left:4px solid var(--c-ameris-blue)">
           <div class="card-header" style="background:linear-gradient(135deg,var(--c-ameris-blue) 0%,var(--c-ameris-navy) 100%)">
-            <div class="card-title">🎯 Insight · En qué AGFs están invirtiendo más / menos las compañías de seguros</div>
+            <div class="card-title">Movimientos por AGF · ¿en qué administradoras se está invirtiendo más?</div>
           </div>
           <div style="padding:14px 18px;font-size:13px;line-height:1.7">
             ${insight}
@@ -6150,7 +6160,7 @@ function renderPulsoAmeris() {
       `;
     })() : `
       <div class="notice" style="background:#fffbeb;border-color:#fde68a">
-        💡 <strong>Insight de movimientos por AGF:</strong> cargá al menos 2 períodos para ver en qué AGFs las compañías de seguros están aumentando o reduciendo su inversión.
+        <strong>Movimientos por AGF:</strong> cargá al menos 2 períodos para ver en qué administradoras las compañías de seguros están aumentando o reduciendo su inversión.
       </div>
     `}
 
@@ -6337,7 +6347,7 @@ function openAgfMoverDetail(rut, allCFI, lastP, prevP) {
         </div>
       </div>
 
-      <div style="padding:14px 22px 6px;font-size:13px;font-weight:700;color:var(--c-ameris-navy)">📊 Fondos de la AGF</div>
+      <div style="padding:14px 22px 6px;font-size:13px;font-weight:700;color:var(--c-ameris-navy)">Fondos de la AGF</div>
       <div style="max-height:340px;overflow-y:auto;padding:0 22px">
         <table style="width:100%">
           <thead style="position:sticky;top:0;background:#f8fafc;z-index:1">
@@ -6347,7 +6357,7 @@ function openAgfMoverDetail(rut, allCFI, lastP, prevP) {
         </table>
       </div>
 
-      <div style="padding:14px 22px 6px;font-size:13px;font-weight:700;color:var(--c-ameris-navy)">🏢 Compañías de seguros clientes (último período)</div>
+      <div style="padding:14px 22px 6px;font-size:13px;font-weight:700;color:var(--c-ameris-navy)">Compañías de seguros clientes · ${fmtPeriod(lastP)}</div>
       <div style="max-height:280px;overflow-y:auto;padding:0 22px 22px">
         <table style="width:100%">
           <thead style="position:sticky;top:0;background:#f8fafc;z-index:1">
@@ -6488,7 +6498,7 @@ function showQualityToast(newKeys) {
   `;
   toast.innerHTML = `
     <div style="display:flex;align-items:start;gap:10px">
-      <div style="font-size:18px;line-height:1">🔍</div>
+      <div style="font-size:18px;line-height:1;color:${color}">●</div>
       <div style="flex:1">
         <div style="font-weight:600;color:${color};margin-bottom:6px">
           ${critical ? 'Hay items pendientes de revisar' : 'Items nuevos detectados'}
@@ -6692,7 +6702,7 @@ function setupControls() {
       const opening = !helpPanel.classList.contains('open');
       helpPanel.classList.toggle('open', opening);
       helpBtn.classList.toggle('active', opening);
-      helpBtn.textContent = opening ? '✕ Cerrar' : '❓ Ayuda / Glosario';
+      helpBtn.textContent = opening ? 'Cerrar' : 'Ayuda / Glosario';
     });
   }
 }
