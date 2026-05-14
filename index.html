@@ -6678,7 +6678,9 @@ function setupControls() {
     exportCSV();
     showSuccessToast('CSV descargado');
   });
-  // Exportar PDF del Resumen General usando html2pdf.js (descarga directa).
+  // Exportar PDF del Resumen General usando html2pdf.js.
+  // En lugar de clonar el DOM (que da problemas con charts, scroll y
+  // page-breaks), generamos un HTML limpio específico para el PDF.
   document.getElementById('btn-export-pdf').addEventListener('click', () => {
     if (STATE.files.length === 0) {
       alert('Cargá archivos primero para poder generar el PDF.');
@@ -6688,47 +6690,19 @@ function setupControls() {
       alert('La librería de PDF aún no terminó de cargar. Esperá un par de segundos y reintenta.');
       return;
     }
-    // Asegurar tab Resumen activo y panel renderizado
-    const generalTab = document.querySelector('.tab[data-tab="general"]');
-    if (generalTab && !generalTab.classList.contains('active')) generalTab.click();
-    const source = document.getElementById('tab-general');
-    if (!source || !source.innerHTML.trim()) {
-      alert('No hay contenido en el Resumen General para exportar.');
-      return;
-    }
     showSuccessToast('Generando PDF · puede tardar unos segundos');
-    // Clon offscreen del Resumen General + header de marca, sin botones ni scrolls.
-    const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'background:white;padding:18mm;font-family:Inter,sans-serif;color:#14233b;width:297mm';
-    const periodsLoaded = (typeof allPeriods === 'function') ? allPeriods() : [];
-    const lastPeriod = periodsLoaded[periodsLoaded.length - 1] || '';
-    const today = new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' });
-    wrapper.innerHTML = `
-      <div style="border-bottom:2px solid #1F44C5;padding-bottom:14px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:flex-end">
-        <div>
-          <div style="font-size:11px;color:#6b7280;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Ameris AGF · Análisis CMF Compañías de Seguros</div>
-          <div style="font-size:20px;font-weight:600;color:#0A2B5E;letter-spacing:-.02em">Resumen General${lastPeriod ? ` · ${lastPeriod}` : ''}</div>
-        </div>
-        <div style="font-size:11px;color:#6b7280;text-align:right">Generado: ${today}</div>
-      </div>
-      ${source.innerHTML}
-    `;
-    // Limpiar elementos no útiles en el PDF (botones, scroll fades, hints)
-    wrapper.querySelectorAll('.btn-action, .btn-drill, .qfix-btn, .agf-mover-detail, .scroll-fade-hint, button').forEach(el => el.remove());
-    // Quitar overflow y max-height para mostrar todo
-    wrapper.querySelectorAll('[style*="max-height"], [style*="overflow"]').forEach(el => {
-      el.style.maxHeight = 'none';
-      el.style.overflow = 'visible';
-    });
+    const wrapper = _buildPdfHtml();
     document.body.appendChild(wrapper);
-    const fname = `ameris-resumen${lastPeriod ? '-' + lastPeriod : ''}-${new Date().toISOString().slice(0,10)}.pdf`;
+    const periods = (typeof allPeriods === 'function') ? allPeriods() : [];
+    const lastP = periods[periods.length - 1] || '';
+    const fname = `ameris-resumen${lastP ? '-' + lastP : ''}-${new Date().toISOString().slice(0,10)}.pdf`;
     html2pdf().set({
-      margin: 8,
+      margin: [10, 10, 12, 10],  // top, right, bottom, left (mm)
       filename: fname,
-      image: { type: 'jpeg', quality: 0.92 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      image: { type: 'jpeg', quality: 0.95 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', letterRendering: true },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+      pagebreak: { mode: ['css', 'legacy'], avoid: '.pdf-no-break' },
     }).from(wrapper).save().then(() => {
       wrapper.remove();
       showSuccessToast('PDF descargado');
@@ -6738,6 +6712,323 @@ function setupControls() {
       alert('Error al generar PDF: ' + err.message);
     });
   });
+
+// Construye un HTML limpio y compacto del Resumen General para PDF.
+// No clona el DOM; recomputa todo desde STATE para tener control total
+// del layout, sin charts SVG ni divs con widths absolutos que fallan.
+function _buildPdfHtml() {
+  const hs = activeHoldings();
+  const periodsLoaded = allPeriods();
+  const lastP = periodsLoaded[periodsLoaded.length - 1] || '—';
+  const prevP = periodsLoaded.length >= 2 ? periodsLoaded[periodsLoaded.length - 2] : null;
+  const lastHs = hs.filter(h => h._periodo === lastP);
+  const prevHs = prevP ? hs.filter(h => h._periodo === prevP) : [];
+  const lastSum = totalValLibro(lastHs);
+  const prevSum = totalValLibro(prevHs);
+  const periodDelta = prevSum > 0 ? (lastSum / prevSum - 1) : null;
+  const lastLocal = lastHs.filter(h => h._source === 'b2').reduce((s, h) => s + h.valLibro, 0);
+  const lastExt = lastHs.filter(h => h._source === 'b5').reduce((s, h) => s + h.valLibro, 0);
+  const lastIns = new Set(lastHs.map(h => h.insurerRut)).size;
+  const lastAgfs = new Set(lastHs.map(h => canonicalAgfRut(h.rutAdm || h.rutEmisor)).filter(Boolean)).size;
+  const insLast = aggregateByInsurer(lastHs);
+  const insPrev = aggregateByInsurer(prevHs);
+  const prevByRut = new Map(insPrev.map(c => [c.rut, c.valLibro]));
+  const agfLast = aggregateByAGF(lastHs);
+  const totalLast = insLast.reduce((s, c) => s + c.valLibro, 0) || 1;
+
+  // Composición por categoría
+  const catMap = {};
+  for (const h of lastHs) catMap[h.category] = (catMap[h.category] || 0) + h.valLibro;
+  const catPrevMap = {};
+  for (const h of prevHs) catPrevMap[h.category] = (catPrevMap[h.category] || 0) + h.valLibro;
+  const catEntries = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+
+  // Top fondos
+  const fundsLast = aggregateByInstrument(lastHs);
+  const fundsPrev = aggregateByInstrument(prevHs);
+  const prevFundByKey = new Map(fundsPrev.map(f => [f.nemo + '||' + f.serie, f]));
+  const fundsRanked = fundsLast.map(f => {
+    const key = f.nemo + '||' + f.serie;
+    const prev = prevFundByKey.get(key);
+    const cias = new Set(lastHs.filter(h => h.nemo === f.nemo && h.serie === f.serie).map(h => h.insurerRut)).size;
+    return { ...f, cias, prev, deltaAbs: prev ? f.valLibro - prev.valLibro : f.valLibro,
+             deltaPct: prev && prev.valLibro > 0 ? (f.valLibro / prev.valLibro - 1) : null,
+             isNew: !prev };
+  }).sort((a, b) => b.valLibro - a.valLibro);
+
+  // Movers
+  const fundGrowers = prevP
+    ? fundsRanked.filter(f => !f.isNew && f.deltaAbs > 0).sort((a, b) => b.deltaAbs - a.deltaAbs).slice(0, 10)
+    : [];
+  const newFunds = prevP ? fundsRanked.filter(f => f.isNew && f.valLibro > 0).sort((a, b) => b.valLibro - a.valLibro) : [];
+
+  // Datos para conclusiones
+  const top5Sum = insLast.slice(0, 5).reduce((s, c) => s + c.valLibro, 0);
+  const top5Share = top5Sum / totalLast * 100;
+  const top5Names = insLast.slice(0, 5).map(c => c.name).join(', ');
+
+  const today = new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  // === Styles inline para PDF (independientes del CSS de la app) ===
+  const S = {
+    page: 'font-family:Inter,system-ui,sans-serif;color:#14233b;width:277mm;background:white;padding:0;',
+    h1: 'font-size:18px;font-weight:600;color:#0A2B5E;letter-spacing:-.02em;margin:0;',
+    sub: 'font-size:10px;color:#6b7280;letter-spacing:.06em;text-transform:uppercase;margin:0 0 3px;',
+    sec: 'font-size:13px;font-weight:600;color:#0A2B5E;margin:14px 0 8px;padding:0 0 5px;border-bottom:1px solid #c7d2fe;letter-spacing:-.01em;',
+    kpiRow: 'display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin:10px 0 6px;',
+    kpi: 'border:1px solid #E3E8F1;border-radius:6px;padding:10px 12px;background:#f8fafc;',
+    kpiLabel: 'font-size:9px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;',
+    kpiValue: 'font-size:18px;font-weight:600;color:#0A2B5E;letter-spacing:-.02em;line-height:1.1;',
+    kpiSub: 'font-size:9.5px;color:#6b7280;margin-top:3px;',
+    table: 'width:100%;border-collapse:collapse;font-size:10.5px;margin-top:4px;',
+    th: 'text-align:left;font-size:9px;font-weight:600;color:#1F44C5;text-transform:uppercase;letter-spacing:.06em;padding:6px 8px;border-bottom:1px solid #c7d2fe;background:#f4f7fc;',
+    thNum: 'text-align:right;',
+    td: 'padding:5px 8px;border-bottom:1px solid #f0f2f8;',
+    tdNum: 'text-align:right;font-variant-numeric:tabular-nums;',
+    pos: 'color:#047857;font-weight:500;',
+    neg: 'color:#b91c1c;font-weight:500;',
+    conclusion: 'background:#f0f7ff;border-left:3px solid #1F44C5;padding:10px 14px;border-radius:4px;font-size:11px;line-height:1.55;margin:6px 0 0;',
+    cell: 'background:white;border:1px solid #E3E8F1;border-radius:6px;padding:10px 12px;',
+    grid2: 'display:grid;grid-template-columns:1fr 1fr;gap:10px;',
+    noBreak: 'page-break-inside:avoid;',
+  };
+
+  const fmtPct = (v, sign = true) => v === null ? '—' : `${sign && v > 0 ? '+' : ''}${(v * 100).toFixed(1)}%`;
+  const colorPct = (v) => v === null ? S.td : (v > 0 ? S.tdNum + S.pos : S.tdNum + S.neg);
+  const colorAbs = (v) => v > 0 ? S.tdNum + S.pos : v < 0 ? S.tdNum + S.neg : S.tdNum;
+  const fmtDelta = (v) => v === null ? '—' : `${v > 0 ? '+' : ''}${fmtMoney(v)}`;
+  const friendly = (nemo) => friendlyForNemo(nemo) || nemo;
+
+  // === HTML por secciones ===
+  const header = `
+    <div style="border-bottom:2px solid #1F44C5;padding-bottom:10px;display:flex;justify-content:space-between;align-items:flex-end;${S.noBreak}">
+      <div>
+        <div style="${S.sub}">Ameris AGF · Análisis CMF Compañías de Seguros</div>
+        <div style="${S.h1}">Resumen General · ${lastP}</div>
+      </div>
+      <div style="font-size:10px;color:#6b7280;text-align:right;line-height:1.4">
+        ${lastIns} compañías · ${lastAgfs} AGFs · ${periodsLoaded.length} período${periodsLoaded.length !== 1 ? 's' : ''} cargado${periodsLoaded.length !== 1 ? 's' : ''}<br>
+        Generado: ${today}
+      </div>
+    </div>
+  `;
+
+  const kpis = `
+    <div style="${S.kpiRow}${S.noBreak}">
+      <div style="${S.kpi}">
+        <div style="${S.kpiLabel}">AUM CFI · ${lastP}</div>
+        <div style="${S.kpiValue}">${fmtMoney(lastSum)}</div>
+        <div style="${S.kpiSub}">${lastIns} cías · ${lastAgfs} AGFs</div>
+      </div>
+      <div style="${S.kpi}">
+        <div style="${S.kpiLabel}">Δ vs ${prevP || 'anterior'}</div>
+        <div style="${S.kpiValue};color:${periodDelta === null ? '#6b7280' : (periodDelta > 0 ? '#047857' : '#b91c1c')}">${periodDelta === null ? '—' : fmtPct(periodDelta)}</div>
+        <div style="${S.kpiSub}">${prevP ? `${prevP} → ${lastP}` : 'Cargá 2+ períodos'}</div>
+      </div>
+      <div style="${S.kpi}">
+        <div style="${S.kpiLabel}">Local vs Extranjero</div>
+        <div style="${S.kpiValue};font-size:15px">${lastSum > 0 ? Math.round(lastLocal / lastSum * 100) : 0}% / ${lastSum > 0 ? Math.round(lastExt / lastSum * 100) : 0}%</div>
+        <div style="${S.kpiSub}">B.2 ${fmtMoney(lastLocal)} · B.5 ${fmtMoney(lastExt)}</div>
+      </div>
+      <div style="${S.kpi}">
+        <div style="${S.kpiLabel}">Top 5 concentración</div>
+        <div style="${S.kpiValue}">${top5Share.toFixed(1)}%</div>
+        <div style="${S.kpiSub}">${fmtMoney(top5Sum)} de ${fmtMoney(totalLast)}</div>
+      </div>
+    </div>
+  `;
+
+  const conclusiones = `
+    <div style="${S.conclusion}${S.noBreak}">
+      <div style="margin-bottom:4px"><b style="color:#1F44C5">Concentración:</b> Top 5 (${top5Names}) = <b>${top5Share.toFixed(1)}%</b> del Val. Libro CFI.</div>
+      ${prevP ? `<div style="margin-bottom:4px"><b style="color:#1F44C5">Crecimiento:</b> ${periodDelta > 0 ? 'creció' : 'decreció'} <b style="color:${periodDelta>0?'#047857':'#b91c1c'}">${fmtPct(periodDelta)}</b> (${periodDelta > 0 ? '+' : ''}${fmtMoney(lastSum - prevSum)}) entre ${prevP} y ${lastP}.</div>` : ''}
+      <div><b style="color:#1F44C5">Composición:</b> Categoría más grande: <b>${escapeHtml(catEntries[0] ? catEntries[0][0] : '—')}</b> con ${catEntries[0] ? fmtMoney(catEntries[0][1]) : '—'} (${catEntries[0] ? (catEntries[0][1] / totalLast * 100).toFixed(1) + '%' : '—'}).</div>
+    </div>
+  `;
+
+  // Tabla ranking compañías
+  const insRows = insLast.map((c, i) => {
+    const prev = prevByRut.get(c.rut) || 0;
+    const deltaPct = prev > 0 ? c.valLibro / prev - 1 : null;
+    return `<tr>
+      <td style="${S.td};width:24px;color:#6b7280">${i + 1}</td>
+      <td style="${S.td}"><b>${escapeHtml(c.name)}</b></td>
+      <td style="${S.td}${S.tdNum}">${fmtMoney(c.valLibro)}</td>
+      <td style="${S.td}${S.tdNum};color:#6b7280">${(c.valLibro / totalLast * 100).toFixed(2)}%</td>
+      <td style="${colorPct(deltaPct)}">${fmtPct(deltaPct)}</td>
+    </tr>`;
+  }).join('');
+
+  // Tabla categorías
+  const catRows = catEntries.map(([cat, v]) => {
+    const prev = catPrevMap[cat] || 0;
+    const deltaPct = prev > 0 ? v / prev - 1 : null;
+    return `<tr>
+      <td style="${S.td}"><b>${escapeHtml(cat)}</b></td>
+      <td style="${S.td}${S.tdNum}">${fmtMoney(v)}</td>
+      <td style="${S.td}${S.tdNum};color:#6b7280">${(v / totalLast * 100).toFixed(1)}%</td>
+      <td style="${colorPct(deltaPct)}">${fmtPct(deltaPct)}</td>
+    </tr>`;
+  }).join('');
+
+  const rankingSection = `
+    <div style="page-break-before:auto;${S.noBreak}">
+      <div style="${S.sec}">Ranking compañías y composición · ${lastP}</div>
+      <div style="${S.grid2}">
+        <div style="${S.cell}">
+          <div style="font-size:11px;font-weight:600;color:#0A2B5E;margin-bottom:6px">Ranking detallado · Val. Libro y Δ${prevP ? ` vs ${prevP}` : ''}</div>
+          <table style="${S.table}">
+            <thead><tr>
+              <th style="${S.th};width:28px">#</th>
+              <th style="${S.th}">Compañía</th>
+              <th style="${S.th}${S.thNum}">Val. Libro</th>
+              <th style="${S.th}${S.thNum}">% cartera</th>
+              <th style="${S.th}${S.thNum}">Δ %</th>
+            </tr></thead>
+            <tbody>${insRows || '<tr><td colspan="5" style="padding:14px;text-align:center;color:#6b7280">Sin datos</td></tr>'}</tbody>
+          </table>
+        </div>
+        <div style="${S.cell}">
+          <div style="font-size:11px;font-weight:600;color:#0A2B5E;margin-bottom:6px">Composición por categoría</div>
+          <table style="${S.table}">
+            <thead><tr>
+              <th style="${S.th}">Categoría</th>
+              <th style="${S.th}${S.thNum}">Val. Libro</th>
+              <th style="${S.th}${S.thNum}">% cartera</th>
+              <th style="${S.th}${S.thNum}">Δ %</th>
+            </tr></thead>
+            <tbody>${catRows || '<tr><td colspan="4" style="padding:14px;text-align:center;color:#6b7280">Sin datos</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Top 5 fondos
+  const top5FundsRows = fundsRanked.slice(0, 5).map((f, i) => {
+    return `<tr>
+      <td style="${S.td};width:22px;color:#6b7280">${i + 1}</td>
+      <td style="${S.td}"><b>${escapeHtml(friendly(f.nemo))}</b>${f.serie ? ` <span style="color:#6b7280;font-size:9.5px">· Serie ${escapeHtml(f.serie)}</span>` : ''}<br><span style="color:#6b7280;font-size:9px;font-family:monospace">${escapeHtml(f.nemo)}</span></td>
+      <td style="${S.td}">${escapeHtml(f.agf || '—')}</td>
+      <td style="${S.td}${S.tdNum}">${f.cias}</td>
+      <td style="${S.td}${S.tdNum}">${fmtMoney(f.valLibro)}</td>
+      <td style="${S.td}${S.tdNum};color:#6b7280">${(f.valLibro / totalLast * 100).toFixed(1)}%</td>
+      <td style="${colorPct(f.deltaPct)}">${f.isNew ? 'nuevo' : fmtPct(f.deltaPct)}</td>
+    </tr>`;
+  }).join('');
+
+  const top5FundsSection = `
+    <div style="page-break-before:always;${S.noBreak}">
+      <div style="${S.sec}">Top 5 fondos más invertidos · ${lastP}</div>
+      <div style="${S.cell}">
+        <table style="${S.table}">
+          <thead><tr>
+            <th style="${S.th};width:22px">#</th>
+            <th style="${S.th}">Fondo</th>
+            <th style="${S.th}">AGF</th>
+            <th style="${S.th}${S.thNum}">Cías.</th>
+            <th style="${S.th}${S.thNum}">Val. Libro</th>
+            <th style="${S.th}${S.thNum}">% sist.</th>
+            <th style="${S.th}${S.thNum}">Δ %</th>
+          </tr></thead>
+          <tbody>${top5FundsRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Alertas — sólo si hay 2+ períodos
+  let alertasSection = '';
+  if (prevP) {
+    const growersRows = fundGrowers.map(f => `<tr>
+      <td style="${S.td}"><b>${escapeHtml(friendly(f.nemo))}</b>${f.serie ? ` <span style="color:#6b7280;font-size:9.5px">· ${escapeHtml(f.serie)}</span>` : ''}</td>
+      <td style="${S.td};color:#6b7280">${escapeHtml(f.agf || '—')}</td>
+      <td style="${S.td}${S.tdNum}">${fmtMoney(f.valLibro)}</td>
+      <td style="${colorAbs(f.deltaAbs)}">${fmtDelta(f.deltaAbs)}</td>
+      <td style="${colorPct(f.deltaPct)}">${fmtPct(f.deltaPct)}</td>
+    </tr>`).join('');
+    const newRows = newFunds.slice(0, 15).map(f => `<tr>
+      <td style="${S.td}"><b>${escapeHtml(friendly(f.nemo))}</b>${f.serie ? ` <span style="color:#6b7280;font-size:9.5px">· ${escapeHtml(f.serie)}</span>` : ''}</td>
+      <td style="${S.td};color:#6b7280">${escapeHtml(f.agf || '—')}</td>
+      <td style="${S.td}${S.tdNum}">${f.cias}</td>
+      <td style="${S.td}${S.tdNum}">${fmtMoney(f.valLibro)}</td>
+    </tr>`).join('');
+    alertasSection = `
+      <div style="page-break-before:always">
+        <div style="${S.sec}">Alertas · ${prevP} → ${lastP}</div>
+        <div style="${S.grid2}">
+          <div style="${S.cell}${S.noBreak};border-left:3px solid #16a34a">
+            <div style="font-size:11px;font-weight:600;color:#16a34a;margin-bottom:6px">Fondos con mayor crecimiento</div>
+            <table style="${S.table}">
+              <thead><tr>
+                <th style="${S.th}">Fondo</th>
+                <th style="${S.th}">AGF</th>
+                <th style="${S.th}${S.thNum}">Val. Libro</th>
+                <th style="${S.th}${S.thNum}">Δ abs.</th>
+                <th style="${S.th}${S.thNum}">Δ %</th>
+              </tr></thead>
+              <tbody>${growersRows || '<tr><td colspan="5" style="padding:10px;text-align:center;color:#6b7280">Sin fondos en crecimiento</td></tr>'}</tbody>
+            </table>
+          </div>
+          <div style="${S.cell}${S.noBreak};border-left:3px solid #1F44C5">
+            <div style="font-size:11px;font-weight:600;color:#1F44C5;margin-bottom:6px">Fondos nuevos · ${newFunds.length}</div>
+            <table style="${S.table}">
+              <thead><tr>
+                <th style="${S.th}">Fondo</th>
+                <th style="${S.th}">AGF</th>
+                <th style="${S.th}${S.thNum}">Cías.</th>
+                <th style="${S.th}${S.thNum}">Val. Libro</th>
+              </tr></thead>
+              <tbody>${newRows || '<tr><td colspan="4" style="padding:10px;text-align:center;color:#6b7280">Sin fondos nuevos</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Top 15 AGFs
+  const agfRows = agfLast.slice(0, 15).map((a, i) => `<tr>
+    <td style="${S.td};width:22px;color:#6b7280">${i + 1}</td>
+    <td style="${S.td}"><b>${escapeHtml(a.agf)}</b><br><span style="color:#6b7280;font-size:9px">RUT ${fmtRut(a.rut)}</span></td>
+    <td style="${S.td}${S.tdNum}">${a.fundsCount}</td>
+    <td style="${S.td}${S.tdNum}">${a.insurersCount}</td>
+    <td style="${S.td}${S.tdNum}">${a.positions}</td>
+    <td style="${S.td}${S.tdNum}">${fmtMoney(a.valLibro)}</td>
+  </tr>`).join('');
+
+  const top15AgfsSection = `
+    <div style="page-break-before:always">
+      <div style="${S.sec}">Top 15 AGFs · ${lastP}</div>
+      <div style="${S.cell}">
+        <table style="${S.table}">
+          <thead><tr>
+            <th style="${S.th};width:22px">#</th>
+            <th style="${S.th}">AGF / Emisor</th>
+            <th style="${S.th}${S.thNum}">Fondos</th>
+            <th style="${S.th}${S.thNum}">Cías.</th>
+            <th style="${S.th}${S.thNum}">Posiciones</th>
+            <th style="${S.th}${S.thNum}">Val. Libro</th>
+          </tr></thead>
+          <tbody>${agfRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = S.page;
+  wrapper.innerHTML = `
+    ${header}
+    ${kpis}
+    ${conclusiones}
+    ${rankingSection}
+    ${top5FundsSection}
+    ${alertasSection}
+    ${top15AgfsSection}
+  `;
+  return wrapper;
+}
   setupGlobalSearch();
   // Help panel toggle
   const helpBtn = document.getElementById('btn-help');
