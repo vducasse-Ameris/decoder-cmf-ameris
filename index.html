@@ -1686,6 +1686,9 @@
   </footer>
 </div>
 
+<!-- html2pdf.js · genera PDF real con descarga directa (autorizado por el user el 2026-05-14). -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
+
 <!-- Embedded mappings (RUT_AGF_MAP, NEMO_NAME_MAP) -->
 <script src="maps.js?v=2026-05-14g"></script>
 <!-- Tabla autoritativa nemo → administradora real + nombre fondo (de NOMBRE_EMISOR B.5) -->
@@ -6675,23 +6678,65 @@ function setupControls() {
     exportCSV();
     showSuccessToast('CSV descargado');
   });
-  // Exportar PDF del Resumen General usando window.print() + CSS @media print.
-  // Cambia al tab Resumen, activa la clase printing-resumen, imprime, y revierte.
+  // Exportar PDF del Resumen General usando html2pdf.js (descarga directa).
   document.getElementById('btn-export-pdf').addEventListener('click', () => {
     if (STATE.files.length === 0) {
       alert('Cargá archivos primero para poder generar el PDF.');
       return;
     }
-    // Asegurar que estamos en el tab Resumen General
+    if (typeof html2pdf === 'undefined') {
+      alert('La librería de PDF aún no terminó de cargar. Esperá un par de segundos y reintenta.');
+      return;
+    }
+    // Asegurar tab Resumen activo y panel renderizado
     const generalTab = document.querySelector('.tab[data-tab="general"]');
     if (generalTab && !generalTab.classList.contains('active')) generalTab.click();
-    document.body.classList.add('printing-resumen');
-    showSuccessToast('Preparando PDF · usa "Guardar como PDF" en el diálogo');
-    setTimeout(() => {
-      window.print();
-      // Limpiar tras imprimir (el browser bloquea hasta cerrar el diálogo)
-      setTimeout(() => document.body.classList.remove('printing-resumen'), 200);
-    }, 350);
+    const source = document.getElementById('tab-general');
+    if (!source || !source.innerHTML.trim()) {
+      alert('No hay contenido en el Resumen General para exportar.');
+      return;
+    }
+    showSuccessToast('Generando PDF · puede tardar unos segundos');
+    // Clon offscreen del Resumen General + header de marca, sin botones ni scrolls.
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'background:white;padding:18mm;font-family:Inter,sans-serif;color:#14233b;width:297mm';
+    const periodsLoaded = (typeof allPeriods === 'function') ? allPeriods() : [];
+    const lastPeriod = periodsLoaded[periodsLoaded.length - 1] || '';
+    const today = new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' });
+    wrapper.innerHTML = `
+      <div style="border-bottom:2px solid #1F44C5;padding-bottom:14px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:flex-end">
+        <div>
+          <div style="font-size:11px;color:#6b7280;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Ameris AGF · Análisis CMF Compañías de Seguros</div>
+          <div style="font-size:20px;font-weight:600;color:#0A2B5E;letter-spacing:-.02em">Resumen General${lastPeriod ? ` · ${lastPeriod}` : ''}</div>
+        </div>
+        <div style="font-size:11px;color:#6b7280;text-align:right">Generado: ${today}</div>
+      </div>
+      ${source.innerHTML}
+    `;
+    // Limpiar elementos no útiles en el PDF (botones, scroll fades, hints)
+    wrapper.querySelectorAll('.btn-action, .btn-drill, .qfix-btn, .agf-mover-detail, .scroll-fade-hint, button').forEach(el => el.remove());
+    // Quitar overflow y max-height para mostrar todo
+    wrapper.querySelectorAll('[style*="max-height"], [style*="overflow"]').forEach(el => {
+      el.style.maxHeight = 'none';
+      el.style.overflow = 'visible';
+    });
+    document.body.appendChild(wrapper);
+    const fname = `ameris-resumen${lastPeriod ? '-' + lastPeriod : ''}-${new Date().toISOString().slice(0,10)}.pdf`;
+    html2pdf().set({
+      margin: 8,
+      filename: fname,
+      image: { type: 'jpeg', quality: 0.92 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
+    }).from(wrapper).save().then(() => {
+      wrapper.remove();
+      showSuccessToast('PDF descargado');
+    }).catch(err => {
+      wrapper.remove();
+      console.error(err);
+      alert('Error al generar PDF: ' + err.message);
+    });
   });
   setupGlobalSearch();
   // Help panel toggle
