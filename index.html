@@ -1929,12 +1929,39 @@ function saveUserOverrides(o) {
 // Cache en memoria — re-leído cada vez que se modifica
 let USER_OVERRIDES = loadUserOverrides();
 
+// Correcciones COMUNITARIAS — JSON central descargado del servidor al
+// iniciar el dashboard. Lo edita el admin; llega a TODOS los usuarios al
+// recargar. Workflow: usuario exporta correcciones → envía al admin →
+// admin integra a community_overrides.json → push → todos reciben.
+let COMMUNITY_OVERRIDES = { nemoNames: {}, rutAgfs: {}, rutMismatchIgnore: [] };
+
+async function loadCommunityOverrides() {
+  try {
+    // Cache buster: usar timestamp del día para forzar refresh diario sin
+    // perder caché entre visitas en el mismo día.
+    const v = new Date().toISOString().slice(0, 10);
+    const resp = await fetch(`community_overrides.json?v=${v}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    COMMUNITY_OVERRIDES = {
+      nemoNames: data.nemoNames || {},
+      rutAgfs: data.rutAgfs || {},
+      rutMismatchIgnore: data.rutMismatchIgnore || [],
+    };
+  } catch (e) {
+    console.warn('No se pudo cargar community_overrides.json:', e);
+  }
+}
+
 function friendlyForNemo(nemo) {
   if (!nemo) return nemo;
   let name = null;
-  // Prioridad 0: override del usuario (máxima — el usuario sabe mejor)
+  // Prioridad 0a: override del usuario (máxima — gana sobre todo)
   if (USER_OVERRIDES.nemoNames && USER_OVERRIDES.nemoNames[nemo]) {
     name = USER_OVERRIDES.nemoNames[nemo];
+  // Prioridad 0b: correcciones comunitarias (servidor central)
+  } else if (COMMUNITY_OVERRIDES.nemoNames && COMMUNITY_OVERRIDES.nemoNames[nemo]) {
+    name = COMMUNITY_OVERRIDES.nemoNames[nemo];
   } else if (window.BOLSA_OVERRIDES && window.BOLSA_OVERRIDES[nemo] && window.BOLSA_OVERRIDES[nemo].f) {
     name = window.BOLSA_OVERRIDES[nemo].f;
   } else if (window.NEMO_NAME_MAP && window.NEMO_NAME_MAP[nemo]) {
@@ -2046,9 +2073,12 @@ function canonicalAgfRut(rut) {
 }
 function canonicalAgfName(rut) {
   const cr = canonicalAgfRut(rut);
-  // Prioridad 0: override del usuario
+  // Prioridad 0a: override del usuario
   if (USER_OVERRIDES.rutAgfs && USER_OVERRIDES.rutAgfs[rut]) return USER_OVERRIDES.rutAgfs[rut];
   if (USER_OVERRIDES.rutAgfs && USER_OVERRIDES.rutAgfs[cr]) return USER_OVERRIDES.rutAgfs[cr];
+  // Prioridad 0b: comunitarias
+  if (COMMUNITY_OVERRIDES.rutAgfs && COMMUNITY_OVERRIDES.rutAgfs[rut]) return COMMUNITY_OVERRIDES.rutAgfs[rut];
+  if (COMMUNITY_OVERRIDES.rutAgfs && COMMUNITY_OVERRIDES.rutAgfs[cr]) return COMMUNITY_OVERRIDES.rutAgfs[cr];
   return (window.RUT_AGF_MAP && window.RUT_AGF_MAP[cr])
       || (window.RUT_AGF_MAP && window.RUT_AGF_MAP[rut])
       || `(RUT ${fmtRut(cr)})`;
@@ -2733,7 +2763,8 @@ function nemoDisplay(rec) {
   const friendly = rec.nemoFriendly;
   const nemo = rec.nemo;
   const userIgnored = USER_OVERRIDES.rutMismatchIgnore && USER_OVERRIDES.rutMismatchIgnore.includes(nemo);
-  const silenced = userIgnored || (window.RUT_MISMATCH_IGNORE && window.RUT_MISMATCH_IGNORE.has(nemo));
+  const communityIgnored = COMMUNITY_OVERRIDES.rutMismatchIgnore && COMMUNITY_OVERRIDES.rutMismatchIgnore.includes(nemo);
+  const silenced = userIgnored || communityIgnored || (window.RUT_MISMATCH_IGNORE && window.RUT_MISMATCH_IGNORE.has(nemo));
   const conflictBadge = (rec.agfMismatch && !silenced)
     ? `<span class="conflict-badge" title="RUT registrado en archivo apunta a '${escapeHtml(rec.agfFromRut || '')}', pero el NOMBRE_EMISOR dice que la administradora real es '${escapeHtml(rec.agf || '')}'. Hay un error de filing de la compañía de seguros. El dashboard usa el dato del NOMBRE_EMISOR (autoritativo).">⚠ RUT errado</span>`
     : '';
@@ -4871,9 +4902,10 @@ function computeQualityIssues() {
     all.filter(r => {
       const rut = r.rutAdm || r.rutEmisor;
       if (!rut) return false;
-      // Excluir los que tienen mapping oficial o user override
+      // Excluir los que tienen mapping oficial, user override o community
       if (window.RUT_AGF_MAP && window.RUT_AGF_MAP[rut]) return false;
       if (USER_OVERRIDES.rutAgfs && USER_OVERRIDES.rutAgfs[rut]) return false;
+      if (COMMUNITY_OVERRIDES.rutAgfs && COMMUNITY_OVERRIDES.rutAgfs[rut]) return false;
       return true;
     }),
     r => r.rutAdm || r.rutEmisor,
@@ -4897,6 +4929,7 @@ function computeQualityIssues() {
       if (!r.agfMismatch) return false;
       if (window.RUT_MISMATCH_IGNORE && window.RUT_MISMATCH_IGNORE.has(r.nemo)) return false;
       if (USER_OVERRIDES.rutMismatchIgnore && USER_OVERRIDES.rutMismatchIgnore.includes(r.nemo)) return false;
+      if (COMMUNITY_OVERRIDES.rutMismatchIgnore && COMMUNITY_OVERRIDES.rutMismatchIgnore.includes(r.nemo)) return false;
       return true;
     }),
     r => r.nemo,
@@ -5091,27 +5124,31 @@ function renderQuality() {
   const totalIssues = checkNemo.length + unmappedAgfs.length + possiblyTruncated.length + mismatches.length;
   const allClean = totalIssues === 0;
 
-  // Contar overrides del usuario para mostrar en la barra de gestión
+  // Contar overrides del usuario
   const userCount = Object.keys(USER_OVERRIDES.nemoNames).length
                   + Object.keys(USER_OVERRIDES.rutAgfs).length
                   + USER_OVERRIDES.rutMismatchIgnore.length;
+  // Contar correcciones comunitarias (descargadas del servidor)
+  const communityCount = Object.keys(COMMUNITY_OVERRIDES.nemoNames).length
+                       + Object.keys(COMMUNITY_OVERRIDES.rutAgfs).length
+                       + COMMUNITY_OVERRIDES.rutMismatchIgnore.length;
 
   const userBar = `
     <div class="card" style="margin-bottom:16px;border-left:4px solid #4f46e5">
-      <div class="card-header"><div class="card-title">Tus correcciones</div></div>
+      <div class="card-header"><div class="card-title">Correcciones activas</div></div>
       <div style="padding:0 16px 14px">
-        <div style="color:var(--c-muted);font-size:12px;margin-bottom:10px">
-          Las correcciones que hagas se guardan en este navegador y se aplican automáticamente.
-          ${userCount > 0
-            ? `Actualmente tienes <strong>${userCount}</strong> corrección${userCount !== 1 ? 'es' : ''} activa${userCount !== 1 ? 's' : ''}.`
-            : 'Aún no has agregado ninguna corrección. Usa el botón <strong>✏ Corregir</strong> en las filas para empezar.'}
+        <div style="color:var(--c-muted);font-size:12px;margin-bottom:10px;line-height:1.5">
+          <div><strong style="color:#16a34a">✓ Comunitarias:</strong> ${communityCount} corrección${communityCount !== 1 ? 'es' : ''} ${communityCount > 0 ? 'aplicadas automáticamente a todos los usuarios (vienen del servidor).' : 'disponibles. Cuando el admin agregue correcciones al archivo central, aparecerán aquí.'}</div>
+          <div style="margin-top:4px"><strong style="color:#4f46e5">✓ Tuyas (este navegador):</strong> ${userCount > 0 ? `${userCount} corrección${userCount !== 1 ? 'es' : ''}.` : 'Ninguna. Usá <strong>✏ Corregir</strong> en las filas para corregir lo que veas mal.'}</div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn btn-secondary" id="quality-export" type="button" style="font-size:12px;padding:5px 12px" ${userCount === 0 ? 'disabled' : ''}>📤 Exportar correcciones (.json)</button>
-          <label class="btn btn-secondary" for="quality-import-file" style="font-size:12px;padding:5px 12px;cursor:pointer">📥 Importar correcciones (.json)</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button class="btn btn-secondary" id="quality-sync" type="button" style="font-size:12px;padding:5px 12px" title="Re-descarga community_overrides.json del servidor (por si el admin lo actualizó)">🔄 Sincronizar comunitarias</button>
+          <button class="btn btn-secondary" id="quality-export" type="button" style="font-size:12px;padding:5px 12px" ${userCount === 0 ? 'disabled' : ''}>📤 Exportar mis correcciones</button>
+          <label class="btn btn-secondary" for="quality-import-file" style="font-size:12px;padding:5px 12px;cursor:pointer">📥 Importar correcciones</label>
           <input type="file" id="quality-import-file" accept=".json" style="display:none">
           ${userCount > 0 ? '<button class="btn btn-secondary" id="quality-reset" type="button" style="font-size:12px;padding:5px 12px;color:#dc2626">🗑 Borrar mis correcciones</button>' : ''}
         </div>
+        ${userCount > 0 ? '<div style="font-size:11px;color:var(--c-muted);margin-top:8px;font-style:italic">Tip: si encontraste correcciones útiles, exportá el JSON y envialo al admin para que las integre al archivo comunitario — así llegan a todos.</div>' : ''}
       </div>
     </div>
   `;
@@ -5189,6 +5226,23 @@ function _wireQualityActions() {
       USER_OVERRIDES = { nemoNames: {}, rutAgfs: {}, rutMismatchIgnore: [] };
       saveUserOverrides(USER_OVERRIDES);
       renderAll();
+    });
+  }
+  // Sincronizar correcciones comunitarias (re-fetch del servidor)
+  const syncBtn = document.getElementById('quality-sync');
+  if (syncBtn) {
+    syncBtn.addEventListener('click', async () => {
+      syncBtn.textContent = '🔄 Sincronizando...';
+      syncBtn.disabled = true;
+      const before = Object.keys(COMMUNITY_OVERRIDES.nemoNames).length
+                   + Object.keys(COMMUNITY_OVERRIDES.rutAgfs).length
+                   + COMMUNITY_OVERRIDES.rutMismatchIgnore.length;
+      await loadCommunityOverrides();
+      const after = Object.keys(COMMUNITY_OVERRIDES.nemoNames).length
+                  + Object.keys(COMMUNITY_OVERRIDES.rutAgfs).length
+                  + COMMUNITY_OVERRIDES.rutMismatchIgnore.length;
+      renderAll();
+      setTimeout(() => alert(`Sincronización completa. ${after} corrección${after !== 1 ? 'es' : ''} activa${after !== 1 ? 's' : ''}${after !== before ? ` (${after - before > 0 ? '+' : ''}${after - before} respecto a antes).` : '.'}`), 50);
     });
   }
 }
@@ -6189,11 +6243,15 @@ function downloadCSV(rows, filename) {
    INIT
    ======================================================================= */
 
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   loadState();
   setupTabs();
   setupDropzone();
   setupControls();
+  // Cargar correcciones comunitarias (no bloqueante para UX; si el fetch
+  // tarda, primero se renderiza y luego se re-renderiza al llegar).
+  renderAll();
+  await loadCommunityOverrides();
   renderAll();
 });
 

@@ -1,0 +1,10 @@
+{
+  "_meta": {
+    "description": "Correcciones aplicadas automáticamente a TODOS los usuarios del dashboard. Editado centralmente. Cuando un usuario exporta sus correcciones y las envía al admin, se integran aquí y todos las reciben al recargar.",
+    "lastUpdated": "2026-05-14",
+    "version": 1
+  },
+  "nemoNames": {},
+  "rutAgfs": {},
+  "rutMismatchIgnore": []
+}
