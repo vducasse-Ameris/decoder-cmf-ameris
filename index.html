@@ -1351,7 +1351,7 @@
 </div>
 
 <!-- Embedded mappings (RUT_AGF_MAP, NEMO_NAME_MAP) -->
-<script src="maps.js?v=2026-05-14d"></script>
+<script src="maps.js?v=2026-05-14e"></script>
 <!-- Datos AUM sistema asegurador chileno (CMF · semestral · USD) -->
 <script src="insurer_aum_data.js?v=2026-05-12a"></script>
 <!-- Tabla autoritativa nemo → administradora real + nombre fondo (de NOMBRE_EMISOR B.5) -->
@@ -1922,6 +1922,28 @@ function friendlyForNemo(nemo) {
 // 2) canonicalAgfName(rut_registrado) (basado en RUT_AGF_MAP) como fallback
 // Retorna { name, source, mismatch } donde mismatch=true si la AGF real difiere
 // significativamente del RUT registrado.
+// Detecta nombres de admin en NEMO_AUTHORITY que vienen claramente
+// truncados/genéricos del campo NOMBRE_EMISOR de B.5 (ancho fijo cortó la marca).
+// Cuando se detectan, preferimos el nombre canónico de RUT_AGF_MAP.
+function _isTruncatedAdmin(name) {
+  if (!name) return true;
+  const s = String(name).trim().toLowerCase();
+  const generic = [
+    'administradora general de fon',
+    'administradora general de f',
+    'administradora de fondo',
+    'adm general de fon',
+    'adm. de fondos de inver',
+    'adm. de fondos de inversion',
+    'adm. gral. de fondos',
+    'administradora s.a.',
+    'agf sec',
+    'agf bice',
+    'agf bci',
+  ];
+  return generic.some(g => s === g || s.startsWith(g) && s.length <= g.length + 5);
+}
+
 function resolveAgf(rec) {
   const rutRegistrado = rec.rutEmisor || rec.rutAdm;
   const nameFromRut = rutRegistrado ? canonicalAgfName(rutRegistrado) : '—';
@@ -1935,6 +1957,11 @@ function resolveAgf(rec) {
   // Prioridad 2: NEMO_AUTHORITY (extraído del NOMBRE_EMISOR de los archivos)
   const auth = (window.NEMO_AUTHORITY && rec.nemo) ? window.NEMO_AUTHORITY[rec.nemo] : null;
   if (auth && auth.a) {
+    // Si el admin de NEMO_AUTHORITY es claramente truncado/genérico y RUT_AGF_MAP
+    // tiene un nombre real, usar el de RUT_AGF_MAP (más confiable).
+    if (_isTruncatedAdmin(auth.a) && nameFromRut && nameFromRut !== '—') {
+      return { name: nameFromRut, source: 'RUT_AGF_MAP', mismatch: false, rutMappingName: nameFromRut };
+    }
     const norm = s => (s || '').toUpperCase().replace(/\b(S\.?A\.?|AGF|ADM|ADMIN|ADMINISTRADORA|GRAL|GENERAL|FONDOS|S A)\b/g, '').replace(/[^\w]/g, '').slice(0, 8);
     const mismatch = !!(norm(auth.a) && norm(nameFromRut) && !norm(auth.a).startsWith(norm(nameFromRut).slice(0, 6)) && !norm(nameFromRut).startsWith(norm(auth.a).slice(0, 6)));
     return { name: auth.a, source: 'NOMBRE_EMISOR', mismatch, rutMappingName: nameFromRut };
@@ -3766,7 +3793,27 @@ function renderInsurerCardBody(rut) {
 }
 
 // Renderiza el desglose de una compañía AGRUPADO POR CATEGORÍA (vista clásica).
+// Reglas para fusionar categorías DENTRO de una compañía específica.
+// Cada regla: { matchInsurerName: regex, mergeFrom: [...], mergeInto: '...' }
+const INSURER_CATEGORY_MERGE_RULES = [
+  {
+    matchInsurerName: /consorcio\s+nacional/i,
+    mergeFrom: ['Fondo Mutuo Ext.', 'Fondo Mutuo'],
+    mergeInto: 'Cuota Fondo Inversión',
+  },
+];
+
+function _applyInsurerCategoryMerges(recs) {
+  if (!recs.length) return recs;
+  const insurerName = (recs[0].insurerName || '').toString();
+  const rule = INSURER_CATEGORY_MERGE_RULES.find(r => r.matchInsurerName.test(insurerName));
+  if (!rule) return recs;
+  const fromSet = new Set(rule.mergeFrom);
+  return recs.map(r => fromSet.has(r.category) ? { ...r, category: rule.mergeInto } : r);
+}
+
 function renderInsurerByCategory(recs, lastP) {
+  recs = _applyInsurerCategoryMerges(recs);
   const byCat = {};
   for (const r of recs) {
     if (!byCat[r.category]) byCat[r.category] = [];

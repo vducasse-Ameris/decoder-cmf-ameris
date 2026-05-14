@@ -288,6 +288,10 @@ window.NEMO_NAME_MAP = {
   "CFIGCPXI-E": "Moneda DCP XI Fondo de Inversión",
   "CFIMOP8I-E": "Moneda Carlyle Asia Partners V Fondo de Inversión",
   "CFIMOP8A-E": "Moneda Carlyle Partners VII Fondo de Inversión",
+  "CFIBALT2": "BICE Alternativos Fondo de Inversión",
+  "CFIAMYPI-E": "Ameris Multifamily Partners Fondo de Inversión",
+  "CFIWEG-1": "FI WEG - 1",
+  "CFINRENTAS": "F.I. Independencia Rentas Inmobiliarias",
 
   "LTM": "LATAM Airlines (LTM)",
   "CHILE": "Banco de Chile S.A.",
