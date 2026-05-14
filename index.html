@@ -1293,6 +1293,7 @@
     <button class="tab" data-tab="instruments" role="tab" title="Listado consolidado de todos los instrumentos únicos (acciones y fondos)">Instrumentos</button>
     <button class="tab" data-tab="evolucion" role="tab" title="Evolución mes a mes con sparklines, gráfico de tendencia y top movers">Evolución</button>
     <button class="tab" data-tab="extranjero" role="tab" title="Inversión en el extranjero (archivos B.5): bonos, fondos y acciones extranjeras">Extranjero (B.5)</button>
+    <button class="tab" data-tab="quality" role="tab" title="Auditoría de los datos cargados: nemos sin nombre, AGFs no mapeadas, posibles truncamientos y conflictos">Calidad de datos</button>
     <button class="tab tab-ameris" data-tab="pulso" role="tab" title="Análisis específico para Ameris AGF: AUM, ranking, market share, concentración, tendencias">Pulso Ameris</button>
   </nav>
 
@@ -1326,6 +1327,11 @@
     <!-- TAB: EXTRANJERO (B.5) -->
     <section class="tab-panel" id="tab-extranjero">
       <div id="extranjero-content"></div>
+    </section>
+
+    <!-- TAB: CALIDAD DE DATOS — auditoría de mapeos faltantes / sospechosos -->
+    <section class="tab-panel" id="tab-quality">
+      <div id="quality-content"></div>
     </section>
 
     <!-- TAB: PULSO AMERIS — análisis para Ameris AGF -->
@@ -4776,6 +4782,219 @@ function renderExtranjeroDetail(rut) {
 
 
 /* =======================================================================
+   RENDER — CALIDAD DE DATOS
+   Auditoría de mapeos faltantes/sospechosos para asegurar precisión en
+   la información a medida que se cargan nuevos archivos.
+
+   Secciones:
+   1. Check nemo: nemos en holdings sin nombre amigable (BOLSA, NAME_MAP,
+      ni AUTHORITY los resolvieron).
+   2. AGFs no mapeadas: RUTs de administradoras que aparecen pero no
+      están en RUT_AGF_MAP.
+   3. Posibles nombres truncados: heurística sobre largo y palabra final
+      para detectar cortes del CMF de ancho fijo.
+   4. Conflictos RUT/Emisor: mismatches detectados por resolveAgf
+      (RUT registrado vs NOMBRE_EMISOR).
+   ======================================================================= */
+
+function _qualityLooksTruncated(name) {
+  if (!name) return false;
+  const n = name.trim();
+  if (n.length < 14) return true;
+  const last = n.split(/\s+/).pop() || '';
+  const OK_SHORT = new Set(['FI','FII','SA','AG','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX','UF','USD','CLP','EUR','GBP','I','A','B','C','D','E','F','G','H','J','K','L','M','N','P','Q','R','S','T','U','W','Y','Z']);
+  if (last.length <= 3 && !OK_SHORT.has(last.toUpperCase())) return true;
+  // termina con palabra que parece cortada (sin vocal final típica)
+  if (last.length === 4 && /[bcdfgjklmnpqrstvwxz]$/i.test(last) && !OK_SHORT.has(last.toUpperCase())) return true;
+  return false;
+}
+
+function renderQuality() {
+  const container = document.getElementById('quality-content');
+  if (STATE.files.length === 0) {
+    container.innerHTML = emptyState('Carga archivos B.2 / B.5 para auditar la calidad de los datos.');
+    return;
+  }
+
+  // Agregar TODAS las holdings (B.2 + B.5) en un sólo array
+  const all = [];
+  for (const f of STATE.files) {
+    if (f.holdings) all.push(...f.holdings);
+    if (f.b5Records) all.push(...f.b5Records);
+  }
+
+  // Helper: agrupar por una clave conservando agregados útiles
+  const groupBy = (arr, keyFn, recordFn = r => ({})) => {
+    const m = new Map();
+    for (const r of arr) {
+      const k = keyFn(r);
+      if (!k) continue;
+      if (!m.has(k)) m.set(k, { key: k, count: 0, valLibro: 0, insurers: new Set(), nemos: new Set(), extra: recordFn(r) });
+      const entry = m.get(k);
+      entry.count++;
+      entry.valLibro += r.valLibro || 0;
+      if (r.insurerRut) entry.insurers.add(r.insurerRut);
+      if (r.nemo) entry.nemos.add(r.nemo);
+    }
+    return Array.from(m.values()).sort((a, b) => b.valLibro - a.valLibro);
+  };
+
+  // 1) CHECK NEMO — nemos sin nombre amigable
+  const checkNemo = groupBy(
+    all.filter(r => r.nemo && !friendlyForNemo(r.nemo)),
+    r => r.nemo,
+    r => ({ tipoInst: r.tipoInst, agf: r.agf })
+  );
+
+  // 2) AGFs no mapeadas — RUTs presentes pero sin canónico en RUT_AGF_MAP
+  const unmappedAgfs = groupBy(
+    all.filter(r => {
+      const rut = r.rutAdm || r.rutEmisor;
+      return rut && (!window.RUT_AGF_MAP || !window.RUT_AGF_MAP[rut]);
+    }),
+    r => r.rutAdm || r.rutEmisor,
+    r => ({ nombreEmisor: r.nombreEmisor || r.agf })
+  );
+
+  // 3) Posibles truncamientos — nombre resuelto pero parece cortado
+  // Excluye los que ya están en NEMO_NAME_MAP o BOLSA_OVERRIDES (esos son curados)
+  const possiblyTruncated = groupBy(
+    all.filter(r => {
+      if (!r.nemo) return false;
+      const inOverride = (window.BOLSA_OVERRIDES && window.BOLSA_OVERRIDES[r.nemo])
+                     || (window.NEMO_NAME_MAP && window.NEMO_NAME_MAP[r.nemo]);
+      if (inOverride) return false;
+      // sólo CFI* — los demás (acciones, etc.) suelen no ser nombres descriptivos
+      if (!r.nemo.toUpperCase().startsWith('CFI')) return false;
+      const friendly = friendlyForNemo(r.nemo);
+      return friendly && _qualityLooksTruncated(friendly);
+    }),
+    r => r.nemo,
+    r => ({ name: friendlyForNemo(r.nemo), agf: r.agf })
+  );
+
+  // 4) Mismatches RUT vs NOMBRE_EMISOR (excluyendo whitelist)
+  const mismatches = groupBy(
+    all.filter(r => {
+      if (!r.agfMismatch) return false;
+      if (window.RUT_MISMATCH_IGNORE && window.RUT_MISMATCH_IGNORE.has(r.nemo)) return false;
+      return true;
+    }),
+    r => r.nemo,
+    r => ({ agf: r.agf, agfFromRut: r.agfFromRut })
+  );
+
+  const fmtUsd = (cm) => fmtMoney(cm);
+  const escapeRow = s => escapeHtml(s || '—');
+
+  const sectionHTML = (title, hint, rows, columnsHTML, rowHTML, severity = 'warn') => {
+    const color = severity === 'critical' ? '#dc2626' : severity === 'warn' ? '#d97706' : '#16a34a';
+    const empty = rows.length === 0;
+    return `
+      <div class="card" style="margin-bottom:16px;border-left:4px solid ${color}">
+        <div class="card-header" style="display:flex;align-items:center;gap:10px">
+          <div class="card-title" style="flex:1">${escapeHtml(title)}
+            ${empty
+              ? '<span style="margin-left:8px;color:#16a34a;font-size:12px;font-weight:500">✓ Sin problemas detectados</span>'
+              : `<span style="margin-left:8px;color:${color};font-size:12px;font-weight:500">${rows.length} ${rows.length === 1 ? 'caso' : 'casos'}</span>`}
+          </div>
+        </div>
+        <div style="padding:0 16px 14px">
+          <div style="color:var(--c-muted);font-size:12px;margin-bottom:10px">${escapeHtml(hint)}</div>
+          ${empty ? '' : `
+            <div class="table-wrap">
+              <table>
+                <thead><tr>${columnsHTML}</tr></thead>
+                <tbody>${rows.map(rowHTML).join('')}</tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+  };
+
+  const checkNemoHTML = sectionHTML(
+    'Check nemo',
+    'Nemos que aparecen en los archivos cargados pero no tienen nombre amigable en BOLSA_OVERRIDES, NEMO_NAME_MAP ni NEMO_AUTHORITY. Para corregirlos: agregalos a NEMO_NAME_MAP en Dashboard/maps.js.',
+    checkNemo,
+    `<th>Nemo</th><th>Tipo</th><th>AGF aparente</th><th class="num">Cías.</th><th class="num">Pos.</th><th class="num">Val. Libro</th>`,
+    e => `<tr>
+      <td><strong style="font-family:monospace">${escapeRow(e.key)}</strong></td>
+      <td><span class="badge" style="background:#fee2e2;color:#991b1b">${escapeRow(e.extra.tipoInst)}</span></td>
+      <td>${escapeRow(e.extra.agf)}</td>
+      <td class="num">${e.insurers.size}</td>
+      <td class="num">${e.count}</td>
+      <td class="num">${fmtUsd(e.valLibro)}</td>
+    </tr>`,
+    'critical'
+  );
+
+  const unmappedAgfsHTML = sectionHTML(
+    'AGFs / Emisores sin mapear',
+    'RUTs de administradoras o emisores presentes en los archivos pero ausentes de RUT_AGF_MAP. Para corregirlos: agregar la entry RUT → nombre canónico en Dashboard/maps.js.',
+    unmappedAgfs,
+    `<th>RUT</th><th>NOMBRE_EMISOR aparente</th><th class="num">Cías.</th><th class="num">Pos.</th><th class="num">Val. Libro</th>`,
+    e => `<tr>
+      <td><strong style="font-family:monospace">${escapeRow(fmtRut(e.key))}</strong></td>
+      <td>${escapeRow(e.extra.nombreEmisor)}</td>
+      <td class="num">${e.insurers.size}</td>
+      <td class="num">${e.count}</td>
+      <td class="num">${fmtUsd(e.valLibro)}</td>
+    </tr>`,
+    'critical'
+  );
+
+  const truncatedHTML = sectionHTML(
+    'Nombres posiblemente truncados',
+    'Nemos CFI* cuyo nombre resuelto (vía NEMO_AUTHORITY) parece cortado por el ancho fijo del campo NOMBRE_EMISOR del CMF. Para corregirlos: agregar override en NEMO_NAME_MAP, o re-correr el scraper.',
+    possiblyTruncated,
+    `<th>Nemo</th><th>Nombre actual</th><th>AGF</th><th class="num">Cías.</th><th class="num">Pos.</th><th class="num">Val. Libro</th>`,
+    e => `<tr>
+      <td><strong style="font-family:monospace">${escapeRow(e.key)}</strong></td>
+      <td><em>${escapeRow(e.extra.name)}</em></td>
+      <td>${escapeRow(e.extra.agf)}</td>
+      <td class="num">${e.insurers.size}</td>
+      <td class="num">${e.count}</td>
+      <td class="num">${fmtUsd(e.valLibro)}</td>
+    </tr>`,
+    'warn'
+  );
+
+  const mismatchesHTML = sectionHTML(
+    'Conflictos RUT vs NOMBRE_EMISOR',
+    'Posiciones donde el RUT_ADMINISTRADORA reportado por la compañía de seguros apunta a una AGF distinta de la que firma el NOMBRE_EMISOR. Si verificás que la alerta no aplica, agregá el nemo a RUT_MISMATCH_IGNORE en Dashboard/maps.js.',
+    mismatches,
+    `<th>Nemo</th><th>AGF real (NOMBRE_EMISOR)</th><th>AGF del RUT registrado</th><th class="num">Cías.</th><th class="num">Pos.</th>`,
+    e => `<tr>
+      <td><strong style="font-family:monospace">${escapeRow(e.key)}</strong></td>
+      <td>${escapeRow(e.extra.agf)}</td>
+      <td><em>${escapeRow(e.extra.agfFromRut)}</em></td>
+      <td class="num">${e.insurers.size}</td>
+      <td class="num">${e.count}</td>
+    </tr>`,
+    'warn'
+  );
+
+  const totalIssues = checkNemo.length + unmappedAgfs.length + possiblyTruncated.length + mismatches.length;
+  const allClean = totalIssues === 0;
+
+  container.innerHTML = `
+    <div class="notice" style="border-left-color:${allClean ? '#16a34a' : '#d97706'}">
+      <strong>Calidad de datos</strong> · Auditoría de los archivos cargados.
+      ${allClean
+        ? ' Todo limpio: nombres y AGFs resueltos correctamente.'
+        : ` Se detectaron <strong>${totalIssues}</strong> situaciones a revisar. Mirá cada sección para los detalles.`}
+    </div>
+    ${checkNemoHTML}
+    ${unmappedAgfsHTML}
+    ${truncatedHTML}
+    ${mismatchesHTML}
+  `;
+}
+
+
+/* =======================================================================
    RENDER — PULSO AMERIS
    Vista 360° de la posición de Ameris AGF en el sistema de seguros chileno.
    KPIs: AUM total · ranking · market share · concentración de clientes.
@@ -5307,6 +5526,7 @@ function renderActiveTab() {
     case 'instruments': renderInstruments(); break;
     case 'evolucion':   renderEvolucion(); break;
     case 'extranjero':  renderExtranjero(); break;
+    case 'quality':     renderQuality(); break;
     case 'pulso':       renderPulsoAmeris(); break;
   }
 }
