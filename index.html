@@ -1280,7 +1280,7 @@
     </div>
     <div class="right">
       <span class="ab-divider"></span>
-      <button class="btn btn-secondary" type="button" id="btn-quality" title="Auditoría de los datos cargados: nemos sin nombre, AGFs no mapeadas, posibles truncamientos y conflictos">Calidad de datos</button>
+      <button class="btn btn-secondary" type="button" id="btn-quality" title="Auditoría de los datos cargados: nemos sin nombre, AGFs no mapeadas, posibles truncamientos y conflictos">Calidad de datos<span id="quality-badge" style="display:none;margin-left:6px;padding:1px 7px;border-radius:9px;background:#dc2626;color:white;font-size:10.5px;font-weight:700;line-height:14px;vertical-align:1px"></span></button>
       <button class="btn btn-secondary" type="button" id="btn-export-csv" title="Descarga los datos visibles como archivo CSV (compatible con Excel)">Exportar CSV</button>
       <button class="btn btn-secondary" type="button" id="btn-clear" title="Borra todos los archivos cargados (acción no reversible)">Limpiar datos</button>
     </div>
@@ -4809,22 +4809,15 @@ function _qualityLooksTruncated(name) {
   return false;
 }
 
-function renderQuality() {
-  const container = document.getElementById('quality-content');
-  if (STATE.files.length === 0) {
-    container.innerHTML = emptyState('Carga archivos B.2 / B.5 para auditar la calidad de los datos.');
-    return;
-  }
-
-  // Agregar TODAS las holdings (B.2 + B.5) en un sólo array
+// Calcula los 4 grupos de issues. Función pura (sin DOM) para reutilizar
+// entre renderQuality, updateQualityBadge y el toast de carga.
+function computeQualityIssues() {
   const all = [];
   for (const f of STATE.files) {
     if (f.holdings) all.push(...f.holdings);
     if (f.b5Records) all.push(...f.b5Records);
   }
-
-  // Helper: agrupar por una clave conservando agregados útiles
-  const groupBy = (arr, keyFn, recordFn = r => ({})) => {
+  const groupBy = (arr, keyFn, recordFn = () => ({})) => {
     const m = new Map();
     for (const r of arr) {
       const k = keyFn(r);
@@ -4838,15 +4831,11 @@ function renderQuality() {
     }
     return Array.from(m.values()).sort((a, b) => b.valLibro - a.valLibro);
   };
-
-  // 1) CHECK NEMO — nemos sin nombre amigable
   const checkNemo = groupBy(
     all.filter(r => r.nemo && !friendlyForNemo(r.nemo)),
     r => r.nemo,
     r => ({ tipoInst: r.tipoInst, agf: r.agf })
   );
-
-  // 2) AGFs no mapeadas — RUTs presentes pero sin canónico en RUT_AGF_MAP
   const unmappedAgfs = groupBy(
     all.filter(r => {
       const rut = r.rutAdm || r.rutEmisor;
@@ -4855,16 +4844,12 @@ function renderQuality() {
     r => r.rutAdm || r.rutEmisor,
     r => ({ nombreEmisor: r.nombreEmisor || r.agf })
   );
-
-  // 3) Posibles truncamientos — nombre resuelto pero parece cortado
-  // Excluye los que ya están en NEMO_NAME_MAP o BOLSA_OVERRIDES (esos son curados)
   const possiblyTruncated = groupBy(
     all.filter(r => {
       if (!r.nemo) return false;
       const inOverride = (window.BOLSA_OVERRIDES && window.BOLSA_OVERRIDES[r.nemo])
                      || (window.NEMO_NAME_MAP && window.NEMO_NAME_MAP[r.nemo]);
       if (inOverride) return false;
-      // sólo CFI* — los demás (acciones, etc.) suelen no ser nombres descriptivos
       if (!r.nemo.toUpperCase().startsWith('CFI')) return false;
       const friendly = friendlyForNemo(r.nemo);
       return friendly && _qualityLooksTruncated(friendly);
@@ -4872,8 +4857,6 @@ function renderQuality() {
     r => r.nemo,
     r => ({ name: friendlyForNemo(r.nemo), agf: r.agf })
   );
-
-  // 4) Mismatches RUT vs NOMBRE_EMISOR (excluyendo whitelist)
   const mismatches = groupBy(
     all.filter(r => {
       if (!r.agfMismatch) return false;
@@ -4883,6 +4866,77 @@ function renderQuality() {
     r => r.nemo,
     r => ({ agf: r.agf, agfFromRut: r.agfFromRut })
   );
+  return { checkNemo, unmappedAgfs, possiblyTruncated, mismatches };
+}
+
+// Actualiza el badge contador del botón "Calidad de datos" en la action-bar.
+// Suma críticos (checkNemo + unmappedAgfs). Si hay críticos, también
+// pinta el botón en naranja para mayor visibilidad.
+function updateQualityBadge() {
+  const badge = document.getElementById('quality-badge');
+  const btn = document.getElementById('btn-quality');
+  if (!badge || !btn) return;
+  if (STATE.files.length === 0) {
+    badge.style.display = 'none';
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
+    return;
+  }
+  const issues = computeQualityIssues();
+  const critical = issues.checkNemo.length + issues.unmappedAgfs.length;
+  const warnings = issues.possiblyTruncated.length + issues.mismatches.length;
+  const total = critical + warnings;
+  if (total === 0) {
+    badge.style.display = 'none';
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
+    return;
+  }
+  badge.style.display = 'inline-block';
+  badge.textContent = String(total);
+  if (critical > 0) {
+    badge.style.background = '#dc2626';  // rojo
+    btn.style.borderColor = '#dc2626';
+    btn.style.color = '#dc2626';
+    btn.style.background = '#fef2f2';
+  } else {
+    badge.style.background = '#d97706';  // naranja para warnings
+    btn.style.borderColor = '#d97706';
+    btn.style.color = '#92400e';
+    btn.style.background = '#fffbeb';
+  }
+  btn.title = `${critical} crítico${critical !== 1 ? 's' : ''} (Check nemo + AGFs sin mapear) · ${warnings} advertencia${warnings !== 1 ? 's' : ''} (posibles truncamientos + conflictos)`;
+}
+
+// Tracking persistente de issues ya vistos (localStorage). Cuando se abre el
+// panel, se marca como "NUEVO" cualquier issue que no estuviese en el set
+// previo, y luego se agregan TODOS los issues actuales al set para que la
+// próxima vez sólo destaquen los realmente nuevos.
+const QUALITY_REVIEWED_KEY = 'cmf-dashboard.qualityReviewed.v1';
+function _loadReviewedKeys() {
+  try {
+    const raw = localStorage.getItem(QUALITY_REVIEWED_KEY);
+    if (!raw) return new Set();
+    return new Set(JSON.parse(raw));
+  } catch { return new Set(); }
+}
+function _saveReviewedKeys(set) {
+  try { localStorage.setItem(QUALITY_REVIEWED_KEY, JSON.stringify(Array.from(set))); } catch {}
+}
+
+function renderQuality() {
+  const container = document.getElementById('quality-content');
+  if (STATE.files.length === 0) {
+    container.innerHTML = emptyState('Carga archivos B.2 / B.5 para auditar la calidad de los datos.');
+    return;
+  }
+  const { checkNemo, unmappedAgfs, possiblyTruncated, mismatches } = computeQualityIssues();
+
+  // Cargar keys vistas previamente y calcular cuáles son nuevas en esta sesión
+  const reviewed = _loadReviewedKeys();
+  const isNew = (prefix, key) => !reviewed.has(prefix + ':' + key);
 
   const fmtUsd = (cm) => fmtMoney(cm);
   const escapeRow = s => escapeHtml(s || '—');
@@ -4914,13 +4968,17 @@ function renderQuality() {
     `;
   };
 
+  // Badge inline "NUEVO" para issues que aparecen por primera vez
+  const newBadge = (prefix, key) => isNew(prefix, key)
+    ? ` <span style="background:#fbbf24;color:#78350f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;letter-spacing:0.3px">NUEVO</span>` : '';
+
   const checkNemoHTML = sectionHTML(
     'Check nemo',
     'Nemos que aparecen en los archivos cargados pero no tienen nombre amigable en BOLSA_OVERRIDES, NEMO_NAME_MAP ni NEMO_AUTHORITY. Para corregirlos: agregalos a NEMO_NAME_MAP en Dashboard/maps.js.',
     checkNemo,
     `<th>Nemo</th><th>Tipo</th><th>AGF aparente</th><th class="num">Cías.</th><th class="num">Pos.</th><th class="num">Val. Libro</th>`,
     e => `<tr>
-      <td><strong style="font-family:monospace">${escapeRow(e.key)}</strong></td>
+      <td><strong style="font-family:monospace">${escapeRow(e.key)}</strong>${newBadge('nemo', e.key)}</td>
       <td><span class="badge" style="background:#fee2e2;color:#991b1b">${escapeRow(e.extra.tipoInst)}</span></td>
       <td>${escapeRow(e.extra.agf)}</td>
       <td class="num">${e.insurers.size}</td>
@@ -4936,7 +4994,7 @@ function renderQuality() {
     unmappedAgfs,
     `<th>RUT</th><th>NOMBRE_EMISOR aparente</th><th class="num">Cías.</th><th class="num">Pos.</th><th class="num">Val. Libro</th>`,
     e => `<tr>
-      <td><strong style="font-family:monospace">${escapeRow(fmtRut(e.key))}</strong></td>
+      <td><strong style="font-family:monospace">${escapeRow(fmtRut(e.key))}</strong>${newBadge('rut', e.key)}</td>
       <td>${escapeRow(e.extra.nombreEmisor)}</td>
       <td class="num">${e.insurers.size}</td>
       <td class="num">${e.count}</td>
@@ -4951,7 +5009,7 @@ function renderQuality() {
     possiblyTruncated,
     `<th>Nemo</th><th>Nombre actual</th><th>AGF</th><th class="num">Cías.</th><th class="num">Pos.</th><th class="num">Val. Libro</th>`,
     e => `<tr>
-      <td><strong style="font-family:monospace">${escapeRow(e.key)}</strong></td>
+      <td><strong style="font-family:monospace">${escapeRow(e.key)}</strong>${newBadge('trunc', e.key)}</td>
       <td><em>${escapeRow(e.extra.name)}</em></td>
       <td>${escapeRow(e.extra.agf)}</td>
       <td class="num">${e.insurers.size}</td>
@@ -4967,7 +5025,7 @@ function renderQuality() {
     mismatches,
     `<th>Nemo</th><th>AGF real (NOMBRE_EMISOR)</th><th>AGF del RUT registrado</th><th class="num">Cías.</th><th class="num">Pos.</th>`,
     e => `<tr>
-      <td><strong style="font-family:monospace">${escapeRow(e.key)}</strong></td>
+      <td><strong style="font-family:monospace">${escapeRow(e.key)}</strong>${newBadge('mis', e.key)}</td>
       <td>${escapeRow(e.extra.agf)}</td>
       <td><em>${escapeRow(e.extra.agfFromRut)}</em></td>
       <td class="num">${e.insurers.size}</td>
@@ -4975,6 +5033,14 @@ function renderQuality() {
     </tr>`,
     'warn'
   );
+
+  // Marcar todas las keys actuales como vistas, así la próxima vez que
+  // abras el panel sólo destacan las realmente nuevas.
+  checkNemo.forEach(e => reviewed.add('nemo:' + e.key));
+  unmappedAgfs.forEach(e => reviewed.add('rut:' + e.key));
+  possiblyTruncated.forEach(e => reviewed.add('trunc:' + e.key));
+  mismatches.forEach(e => reviewed.add('mis:' + e.key));
+  _saveReviewedKeys(reviewed);
 
   const totalIssues = checkNemo.length + unmappedAgfs.length + possiblyTruncated.length + mismatches.length;
   const allClean = totalIssues === 0;
@@ -5423,7 +5489,20 @@ function readFileAsText(file) {
   });
 }
 
+// Captura el set de keys de issues actuales para detectar "nuevos" tras
+// la carga. Una key es "nemo:CFIXXX" o "rut:XX.XXX.XXX-X".
+function _qualitySnapshot() {
+  const issues = computeQualityIssues();
+  const s = new Set();
+  for (const e of issues.checkNemo) s.add('nemo:' + e.key);
+  for (const e of issues.unmappedAgfs) s.add('rut:' + e.key);
+  for (const e of issues.possiblyTruncated) s.add('trunc:' + e.key);
+  for (const e of issues.mismatches) s.add('mis:' + e.key);
+  return s;
+}
+
 async function ingestFiles(fileList, expectedType) {
+  const beforeSnapshot = _qualitySnapshot();
   const arr = Array.from(fileList);
   let mismatchedCount = 0;
   for (const f of arr) {
@@ -5465,6 +5544,71 @@ async function ingestFiles(fileList, expectedType) {
   }
   saveState();
   renderAll();
+
+  // Detectar issues NUEVOS surgidos en esta carga y notificar
+  const afterSnapshot = _qualitySnapshot();
+  const newKeys = [];
+  afterSnapshot.forEach(k => { if (!beforeSnapshot.has(k)) newKeys.push(k); });
+  if (newKeys.length > 0) {
+    showQualityToast(newKeys);
+  }
+}
+
+// Notificación visual cuando se detectan nemos/AGFs nuevos sin mapear
+// tras cargar archivos. Empuja al usuario a abrir el panel.
+function showQualityToast(newKeys) {
+  const counts = { nemo: 0, rut: 0, trunc: 0, mis: 0 };
+  for (const k of newKeys) {
+    const t = k.split(':')[0];
+    if (counts[t] !== undefined) counts[t]++;
+  }
+  const parts = [];
+  if (counts.nemo) parts.push(`<strong>${counts.nemo}</strong> nemo${counts.nemo !== 1 ? 's' : ''} sin nombre`);
+  if (counts.rut)  parts.push(`<strong>${counts.rut}</strong> AGF${counts.rut !== 1 ? 's' : ''} sin mapear`);
+  if (counts.trunc) parts.push(`<strong>${counts.trunc}</strong> nombre${counts.trunc !== 1 ? 's' : ''} posiblemente truncado${counts.trunc !== 1 ? 's' : ''}`);
+  if (counts.mis)  parts.push(`<strong>${counts.mis}</strong> conflicto${counts.mis !== 1 ? 's' : ''} RUT/Emisor`);
+  if (parts.length === 0) return;
+
+  const critical = counts.nemo + counts.rut > 0;
+  const color = critical ? '#dc2626' : '#d97706';
+  const bgColor = critical ? '#fef2f2' : '#fffbeb';
+
+  // Remover toast previo si existe
+  const prev = document.getElementById('quality-toast');
+  if (prev) prev.remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'quality-toast';
+  toast.style.cssText = `
+    position:fixed;top:80px;right:20px;z-index:9999;
+    background:${bgColor};border:2px solid ${color};border-radius:8px;
+    padding:14px 18px;max-width:380px;
+    box-shadow:0 4px 12px rgba(0,0,0,0.15);
+    font-size:13px;line-height:1.4;color:#1f2937;
+  `;
+  toast.innerHTML = `
+    <div style="display:flex;align-items:start;gap:10px">
+      <div style="font-size:18px;line-height:1">${critical ? '⚠️' : '⚡'}</div>
+      <div style="flex:1">
+        <div style="font-weight:600;color:${color};margin-bottom:6px">
+          ${critical ? 'Datos nuevos requieren revisión' : 'Datos nuevos detectados'}
+        </div>
+        <div>Tras la carga aparecieron: ${parts.join(', ')}.</div>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button id="quality-toast-open" class="btn btn-secondary" style="padding:4px 10px;font-size:12px">Abrir panel</button>
+          <button id="quality-toast-close" class="btn btn-secondary" style="padding:4px 10px;font-size:12px">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(toast);
+  document.getElementById('quality-toast-open').addEventListener('click', () => {
+    toast.remove();
+    document.getElementById('btn-quality').click();
+  });
+  document.getElementById('quality-toast-close').addEventListener('click', () => toast.remove());
+  // Auto-cierre tras 30s
+  setTimeout(() => { if (document.body.contains(toast)) toast.remove(); }, 30000);
 }
 
 function setupDropzone() {
@@ -5550,6 +5694,7 @@ function renderAll() {
   renderAgfFilter();
   renderFileList();
   renderActiveTab();
+  updateQualityBadge();
   // Toggle welcome card visibility
   const welcome = document.getElementById('welcome-card');
   if (welcome) welcome.style.display = STATE.files.length === 0 ? '' : 'none';
