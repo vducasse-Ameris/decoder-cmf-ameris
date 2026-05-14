@@ -333,6 +333,68 @@
     from { opacity: 1; }
     to { opacity: 0; transform: translateY(-8px); }
   }
+
+  /* ============== PRINT STYLES (PDF del Resumen General) ============== */
+  /* Cuando se activa con .printing-resumen en <body>, oculta todo
+     excepto el panel del Resumen General. window.print() del browser
+     genera un PDF con esta vista limpia. */
+  @media print {
+    body.printing-resumen .page-title-bar,
+    body.printing-resumen header,
+    body.printing-resumen .header-actions,
+    body.printing-resumen .tabs,
+    body.printing-resumen .action-bar,
+    body.printing-resumen .dropzone-grid,
+    body.printing-resumen .file-list-row,
+    body.printing-resumen .welcome-card,
+    body.printing-resumen .help-panel,
+    body.printing-resumen .toast-success,
+    body.printing-resumen .agf-modal,
+    body.printing-resumen #quality-toast,
+    body.printing-resumen .footer-wrap,
+    body.printing-resumen .scroll-fade::after,
+    body.printing-resumen .scroll-fade-hint,
+    body.printing-resumen .qfix-btn,
+    body.printing-resumen .agf-mover-detail,
+    body.printing-resumen .btn-action,
+    body.printing-resumen .btn-drill {
+      display: none !important;
+    }
+    body.printing-resumen .tab-panel { display: none !important; }
+    body.printing-resumen #tab-general { display: block !important; }
+    body.printing-resumen main { padding: 0; }
+    body.printing-resumen .card {
+      page-break-inside: avoid;
+      box-shadow: none !important;
+      margin-bottom: 14px !important;
+    }
+    body.printing-resumen [style*="max-height"] {
+      max-height: none !important;
+      overflow: visible !important;
+    }
+    body.printing-resumen .kpi-grid {
+      page-break-inside: avoid;
+    }
+    body.printing-resumen .section-heading {
+      page-break-after: avoid;
+      margin-top: 24px !important;
+    }
+    /* Header de marca al inicio del PDF */
+    body.printing-resumen::before {
+      content: "Ameris AGF · Resumen Cartera Compañías de Seguros";
+      display: block;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--c-ameris-navy);
+      padding: 0 0 14px;
+      margin: 0 0 16px;
+      border-bottom: 2px solid var(--c-ameris-blue);
+    }
+    @page {
+      size: A4 landscape;
+      margin: 14mm 10mm;
+    }
+  }
   /* Tabs — pill style with cyan underline */
   .tabs {
     display: flex;
@@ -1544,6 +1606,7 @@
     <div class="right">
       <span class="ab-divider"></span>
       <button class="btn btn-secondary" type="button" id="btn-quality" title="Auditoría de los datos cargados: nemos sin nombre, AGFs no mapeadas, posibles truncamientos y conflictos">🔍 Calidad de datos<span id="quality-badge" style="display:none;margin-left:6px;padding:1px 7px;border-radius:9px;background:#0891b2;color:white;font-size:10.5px;font-weight:700;line-height:14px;vertical-align:1px"></span></button>
+      <button class="btn btn-secondary" type="button" id="btn-export-pdf" title="Generar PDF del Resumen General (usa la función Imprimir del navegador → Guardar como PDF)">📄 PDF del Resumen</button>
       <button class="btn btn-secondary" type="button" id="btn-export-csv" title="Descarga los datos visibles como archivo CSV (compatible con Excel)">Exportar CSV</button>
       <button class="btn btn-secondary" type="button" id="btn-clear" title="Borra todos los archivos cargados (acción no reversible)">Limpiar datos</button>
     </div>
@@ -6601,6 +6664,24 @@ function setupControls() {
   document.getElementById('btn-export-csv').addEventListener('click', () => {
     exportCSV();
     showSuccessToast('CSV descargado');
+  });
+  // Exportar PDF del Resumen General usando window.print() + CSS @media print.
+  // Cambia al tab Resumen, activa la clase printing-resumen, imprime, y revierte.
+  document.getElementById('btn-export-pdf').addEventListener('click', () => {
+    if (STATE.files.length === 0) {
+      alert('Cargá archivos primero para poder generar el PDF.');
+      return;
+    }
+    // Asegurar que estamos en el tab Resumen General
+    const generalTab = document.querySelector('.tab[data-tab="general"]');
+    if (generalTab && !generalTab.classList.contains('active')) generalTab.click();
+    document.body.classList.add('printing-resumen');
+    showSuccessToast('Preparando PDF · usa "Guardar como PDF" en el diálogo');
+    setTimeout(() => {
+      window.print();
+      // Limpiar tras imprimir (el browser bloquea hasta cerrar el diálogo)
+      setTimeout(() => document.body.classList.remove('printing-resumen'), 200);
+    }, 350);
   });
   setupGlobalSearch();
   // Help panel toggle
