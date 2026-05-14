@@ -1691,8 +1691,12 @@
   </footer>
 </div>
 
-<!-- html2pdf.js · genera PDF real con descarga directa (autorizado por el user el 2026-05-14). -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
+<!-- jsPDF + autoTable para generar PDF nativo con texto seleccionable
+     (autorizado por el user el 2026-05-14). El bundle de html2pdf incluia
+     jsPDF pero internamente lo usaba como wrapper de screenshots HTML.
+     Aqui usamos jsPDF directo para layout controlado. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer></script>
 
 <!-- Embedded mappings (RUT_AGF_MAP, NEMO_NAME_MAP) -->
 <script src="maps.js?v=2026-05-14g"></script>
@@ -6683,47 +6687,438 @@ function setupControls() {
     exportCSV();
     showSuccessToast('CSV descargado');
   });
-  // Exportar PDF del Resumen General usando html2pdf.js.
-  // En lugar de clonar el DOM (que da problemas con charts, scroll y
-  // page-breaks), generamos un HTML limpio específico para el PDF.
+  // Exportar PDF del Resumen General · jsPDF nativo (texto seleccionable real).
   document.getElementById('btn-export-pdf').addEventListener('click', () => {
     if (STATE.files.length === 0) {
       alert('Cargá archivos primero para poder generar el PDF.');
       return;
     }
-    if (typeof html2pdf === 'undefined') {
+    // jsPDF se expone como window.jspdf.jsPDF en la build UMD.
+    if (typeof window.jspdf === 'undefined' || typeof window.jspdf.jsPDF === 'undefined') {
       alert('La librería de PDF aún no terminó de cargar. Esperá un par de segundos y reintenta.');
       return;
     }
-    showSuccessToast('Generando PDF · puede tardar unos segundos');
-    const wrapper = _buildPdfHtml();
-    document.body.appendChild(wrapper);
-    const periods = (typeof allPeriods === 'function') ? allPeriods() : [];
-    const lastP = periods[periods.length - 1] || '';
-    const fname = `ameris-resumen${lastP ? '-' + lastP : ''}-${new Date().toISOString().slice(0,10)}.pdf`;
-    html2pdf().set({
-      margin: [8, 10, 10, 10],  // top, right, bottom, left (mm)
-      filename: fname,
-      image: { type: 'jpeg', quality: 0.95 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', letterRendering: true, windowWidth: 1100 },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-      // Modo css: respeta los page-break-inside:avoid de los bloques marcados
-      // con .pdf-no-break (header, KPIs, conclusiones). Las tablas largas no
-      // tienen ese marcador y se cortan naturalmente sin dejar huecos.
-      pagebreak: { mode: ['css', 'legacy'], avoid: '.pdf-no-break' },
-    }).from(wrapper).save().then(() => {
-      wrapper.remove();
+    showSuccessToast('Generando PDF...');
+    try {
+      _generatePdfReport();
       showSuccessToast('PDF descargado');
-    }).catch(err => {
-      wrapper.remove();
+    } catch (err) {
       console.error(err);
       alert('Error al generar PDF: ' + err.message);
-    });
+    }
   });
 
-// Construye un HTML limpio y compacto del Resumen General para PDF.
-// No clona el DOM; recomputa todo desde STATE para tener control total
-// del layout, sin charts SVG ni divs con widths absolutos que fallan.
+// Genera el PDF del Resumen General usando jsPDF + autoTable.
+// Layout de informe profesional: header, KPIs en grid, conclusiones,
+// tablas con paginación automática. Texto nativo seleccionable.
+function _generatePdfReport() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+  const PAGE_W = doc.internal.pageSize.getWidth();   // 297mm
+  const PAGE_H = doc.internal.pageSize.getHeight();  // 210mm
+  const MARGIN_X = 12;
+  const CONTENT_W = PAGE_W - MARGIN_X * 2;
+
+  // Paleta Ameris
+  const COLOR = {
+    navy: [10, 43, 94],
+    blue: [31, 68, 197],
+    cyan: [61, 167, 224],
+    pale: [199, 210, 254],
+    softBg: [240, 247, 255],
+    text: [20, 35, 59],
+    muted: [107, 114, 128],
+    border: [227, 232, 241],
+    green: [4, 120, 87],
+    red: [185, 28, 28],
+    white: [255, 255, 255],
+    grayBg: [248, 250, 252],
+  };
+
+  // === Recomputar datos ===
+  const hs = activeHoldings();
+  const periodsLoaded = allPeriods();
+  const lastP = periodsLoaded[periodsLoaded.length - 1] || '—';
+  const prevP = periodsLoaded.length >= 2 ? periodsLoaded[periodsLoaded.length - 2] : null;
+  const lastHs = hs.filter(h => h._periodo === lastP);
+  const prevHs = prevP ? hs.filter(h => h._periodo === prevP) : [];
+  const lastSum = totalValLibro(lastHs);
+  const prevSum = totalValLibro(prevHs);
+  const periodDelta = prevSum > 0 ? (lastSum / prevSum - 1) : null;
+  const lastLocal = lastHs.filter(h => h._source === 'b2').reduce((s, h) => s + h.valLibro, 0);
+  const lastExt = lastHs.filter(h => h._source === 'b5').reduce((s, h) => s + h.valLibro, 0);
+  const lastIns = new Set(lastHs.map(h => h._insurerRut).filter(Boolean)).size;
+  const lastAgfs = new Set(lastHs.map(h => canonicalAgfRut(h.rutAdm || h.rutEmisor)).filter(Boolean)).size;
+  const insLast = aggregateByInsurer(lastHs);
+  const insPrev = aggregateByInsurer(prevHs);
+  const prevInsByRut = new Map(insPrev.map(c => [c.rut, c.valLibro]));
+  const agfLast = aggregateByAGF(lastHs);
+  const totalLast = insLast.reduce((s, c) => s + c.valLibro, 0) || 1;
+
+  // Composición categoría
+  const catMap = {}, catPrevMap = {};
+  for (const h of lastHs) catMap[h.category] = (catMap[h.category] || 0) + h.valLibro;
+  for (const h of prevHs) catPrevMap[h.category] = (catPrevMap[h.category] || 0) + h.valLibro;
+  const catEntries = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
+
+  // Top fondos
+  const fundsLast = aggregateByInstrument(lastHs);
+  const fundsPrev = aggregateByInstrument(prevHs);
+  const prevFundByKey = new Map(fundsPrev.map(f => [f.nemo + '||' + f.serie, f]));
+  const fundsRanked = fundsLast.map(f => {
+    const key = f.nemo + '||' + f.serie;
+    const prev = prevFundByKey.get(key);
+    const cias = new Set(lastHs.filter(h => h.nemo === f.nemo && h.serie === f.serie).map(h => h._insurerRut)).size;
+    return { ...f, cias, prev,
+             deltaAbs: prev ? f.valLibro - prev.valLibro : f.valLibro,
+             deltaPct: prev && prev.valLibro > 0 ? (f.valLibro / prev.valLibro - 1) : null,
+             isNew: !prev };
+  }).sort((a, b) => b.valLibro - a.valLibro);
+  const fundGrowers = prevP
+    ? fundsRanked.filter(f => !f.isNew && f.deltaAbs > 0).sort((a, b) => b.deltaAbs - a.deltaAbs).slice(0, 10)
+    : [];
+  const newFunds = prevP ? fundsRanked.filter(f => f.isNew && f.valLibro > 0).sort((a, b) => b.valLibro - a.valLibro) : [];
+
+  const top5Sum = insLast.slice(0, 5).reduce((s, c) => s + c.valLibro, 0);
+  const top5Share = top5Sum / totalLast * 100;
+  const top5Names = insLast.slice(0, 5).map(c => c.name).join(', ');
+  const today = new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' });
+  const fmtPct = (v, sign = true) => v === null || v === undefined ? '—' : `${sign && v > 0 ? '+' : ''}${(v * 100).toFixed(1)}%`;
+  const fmtDelta = v => v === null ? '—' : `${v > 0 ? '+' : ''}${fmtMoney(v)}`;
+  const friendly = nemo => friendlyForNemo(nemo) || nemo;
+
+  // === HEADER ===
+  // Barra superior con marca + título + fecha
+  doc.setFillColor(...COLOR.navy);
+  doc.rect(0, 0, PAGE_W, 22, 'F');
+  doc.setTextColor(...COLOR.white);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.text('AMERIS AGF · ANÁLISIS CMF COMPAÑÍAS DE SEGUROS', MARGIN_X, 9);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.text(`Resumen General · ${lastP}`, MARGIN_X, 17);
+  // Stats a la derecha
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  const headerRight = `${lastIns} compañías  ·  ${lastAgfs} AGFs  ·  ${periodsLoaded.length} período${periodsLoaded.length !== 1 ? 's' : ''}`;
+  doc.text(headerRight, PAGE_W - MARGIN_X, 11, { align: 'right' });
+  doc.setFontSize(7.5);
+  doc.setTextColor(199, 210, 254);
+  doc.text(`Generado: ${today}`, PAGE_W - MARGIN_X, 17, { align: 'right' });
+
+  let y = 30;  // posición Y actual (después del header)
+
+  // === KPIs ===
+  const kpiW = (CONTENT_W - 6) / 4;  // 4 columnas con 2mm gap (6mm total)
+  const kpiH = 22;
+  const drawKpi = (x, label, value, sub, valueColor) => {
+    doc.setDrawColor(...COLOR.border);
+    doc.setFillColor(...COLOR.grayBg);
+    doc.roundedRect(x, y, kpiW, kpiH, 1.5, 1.5, 'FD');
+    // label
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(...COLOR.muted);
+    doc.text(label.toUpperCase(), x + 3.5, y + 5);
+    // value
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(...(valueColor || COLOR.navy));
+    doc.text(value, x + 3.5, y + 12);
+    // sub
+    if (sub) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(...COLOR.muted);
+      doc.text(sub, x + 3.5, y + 18);
+    }
+  };
+  drawKpi(MARGIN_X, `AUM CFI · ${lastP}`, fmtMoney(lastSum), `${lastIns} cías · ${lastAgfs} AGFs`);
+  const deltaColor = periodDelta === null ? COLOR.muted : (periodDelta > 0 ? COLOR.green : COLOR.red);
+  drawKpi(MARGIN_X + (kpiW + 2), `Δ vs ${prevP || 'anterior'}`, periodDelta === null ? '—' : fmtPct(periodDelta), prevP ? `${prevP} → ${lastP}` : 'Cargá 2+ períodos', deltaColor);
+  const pctLocal = lastSum > 0 ? Math.round(lastLocal / lastSum * 100) : 0;
+  const pctExt = lastSum > 0 ? Math.round(lastExt / lastSum * 100) : 0;
+  drawKpi(MARGIN_X + (kpiW + 2) * 2, `Local vs Extranjero`, `${pctLocal}% / ${pctExt}%`, `B.2 ${fmtMoney(lastLocal)} · B.5 ${fmtMoney(lastExt)}`);
+  drawKpi(MARGIN_X + (kpiW + 2) * 3, `Top 5 concentración`, `${top5Share.toFixed(1)}%`, `${fmtMoney(top5Sum)} de ${fmtMoney(totalLast)}`);
+  y += kpiH + 5;
+
+  // === CONCLUSIONES ===
+  // Caja celeste claro con bullets
+  const conclLines = [];
+  conclLines.push({ label: 'Concentración:', text: `Top 5 (${top5Names}) = ${top5Share.toFixed(1)}% del Val. Libro CFI.` });
+  if (prevP) conclLines.push({ label: 'Crecimiento:', text: `${periodDelta > 0 ? 'creció' : 'decreció'} ${fmtPct(periodDelta)} (${periodDelta > 0 ? '+' : ''}${fmtMoney(lastSum - prevSum)}) entre ${prevP} y ${lastP}.` });
+  if (catEntries[0]) conclLines.push({ label: 'Composición:', text: `Categoría más grande: ${catEntries[0][0]} con ${fmtMoney(catEntries[0][1])} (${(catEntries[0][1] / totalLast * 100).toFixed(1)}%).` });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  // Calcular altura necesaria
+  let conclY = y;
+  const lineH = 4.2;
+  const padBox = 4;
+  let totalLinesHeight = 0;
+  conclLines.forEach(({ label, text }) => {
+    const full = `${label} ${text}`;
+    const split = doc.splitTextToSize(full, CONTENT_W - padBox * 2);
+    totalLinesHeight += split.length * lineH;
+  });
+  const boxH = totalLinesHeight + padBox * 2;
+  doc.setFillColor(...COLOR.softBg);
+  doc.setDrawColor(...COLOR.pale);
+  doc.roundedRect(MARGIN_X, conclY, CONTENT_W, boxH, 1.5, 1.5, 'FD');
+  // Barra azul izquierda
+  doc.setFillColor(...COLOR.blue);
+  doc.rect(MARGIN_X, conclY, 1.2, boxH, 'F');
+  conclY += padBox + 3;
+  conclLines.forEach(({ label, text }) => {
+    // Label en azul bold
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...COLOR.blue);
+    const labelW = doc.getTextWidth(label);
+    doc.text(label, MARGIN_X + padBox, conclY);
+    // Texto en color normal
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...COLOR.text);
+    const remaining = CONTENT_W - padBox * 2 - labelW - 1.5;
+    const split = doc.splitTextToSize(text, remaining);
+    doc.text(split[0], MARGIN_X + padBox + labelW + 1.5, conclY);
+    if (split.length > 1) {
+      for (let i = 1; i < split.length; i++) {
+        conclY += lineH;
+        doc.text(split[i], MARGIN_X + padBox + labelW + 1.5, conclY);
+      }
+    }
+    conclY += lineH;
+  });
+  y = conclY + padBox + 2;
+
+  // === HELPER: títulos de sección ===
+  const drawSectionTitle = (title) => {
+    // Salto de página si no hay espacio mínimo (40mm libres)
+    if (y > PAGE_H - 40) { doc.addPage(); y = MARGIN_X; drawPageHeader(); }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...COLOR.navy);
+    doc.text(title, MARGIN_X, y);
+    doc.setDrawColor(...COLOR.pale);
+    doc.setLineWidth(0.3);
+    doc.line(MARGIN_X, y + 1.5, PAGE_W - MARGIN_X, y + 1.5);
+    y += 6;
+  };
+
+  // === HELPER: header reducido en páginas siguientes ===
+  const drawPageHeader = () => {
+    doc.setFillColor(...COLOR.navy);
+    doc.rect(0, 0, PAGE_W, 10, 'F');
+    doc.setTextColor(...COLOR.white);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(`Ameris AGF · Resumen General · ${lastP}`, MARGIN_X, 6.5);
+    doc.setTextColor(199, 210, 254);
+    doc.setFontSize(7);
+    doc.text(today, PAGE_W - MARGIN_X, 6.5, { align: 'right' });
+    y = 16;
+  };
+
+  // === HELPER: estilos uniformes para autoTable ===
+  const tableBase = {
+    margin: { left: MARGIN_X, right: MARGIN_X },
+    styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.8, textColor: COLOR.text, lineColor: COLOR.border, lineWidth: 0.1 },
+    headStyles: { fillColor: COLOR.grayBg, textColor: COLOR.blue, fontStyle: 'bold', fontSize: 7.5, halign: 'left', cellPadding: 2 },
+    bodyStyles: { valign: 'middle' },
+    alternateRowStyles: { fillColor: [252, 253, 255] },
+    didDrawPage: drawPageHeader,
+  };
+
+  // === TABLA 1: Ranking compañías ===
+  drawSectionTitle(`Ranking compañías de seguros · ${lastP}`);
+  const insBody = insLast.map((c, i) => {
+    const prev = prevInsByRut.get(c.rut) || 0;
+    const deltaPct = prev > 0 ? c.valLibro / prev - 1 : null;
+    return [
+      String(i + 1),
+      c.name,
+      fmtMoney(c.valLibro),
+      `${(c.valLibro / totalLast * 100).toFixed(2)}%`,
+      { content: fmtPct(deltaPct), styles: { textColor: deltaPct === null ? COLOR.muted : (deltaPct > 0 ? COLOR.green : COLOR.red) } },
+    ];
+  });
+  doc.autoTable({
+    ...tableBase,
+    startY: y,
+    head: [['#', 'Compañía', { content: 'Val. Libro', styles: { halign: 'right' } }, { content: '% cartera', styles: { halign: 'right' } }, { content: 'Δ %', styles: { halign: 'right' } }]],
+    body: insBody,
+    columnStyles: {
+      0: { cellWidth: 8, textColor: COLOR.muted },
+      1: { cellWidth: 'auto', fontStyle: 'bold' },
+      2: { cellWidth: 30, halign: 'right' },
+      3: { cellWidth: 22, halign: 'right', textColor: COLOR.muted },
+      4: { cellWidth: 20, halign: 'right', fontStyle: 'bold' },
+    },
+  });
+  y = doc.lastAutoTable.finalY + 6;
+
+  // === TABLA 2: Composición categoría ===
+  if (y > PAGE_H - 50) { doc.addPage(); drawPageHeader(); }
+  drawSectionTitle(`Composición por categoría · ${lastP}`);
+  const catBody = catEntries.map(([cat, v]) => {
+    const prev = catPrevMap[cat] || 0;
+    const deltaPct = prev > 0 ? v / prev - 1 : null;
+    return [
+      cat,
+      fmtMoney(v),
+      `${(v / totalLast * 100).toFixed(1)}%`,
+      { content: fmtPct(deltaPct), styles: { textColor: deltaPct === null ? COLOR.muted : (deltaPct > 0 ? COLOR.green : COLOR.red) } },
+    ];
+  });
+  doc.autoTable({
+    ...tableBase,
+    startY: y,
+    head: [['Categoría', { content: 'Val. Libro', styles: { halign: 'right' } }, { content: '% cartera', styles: { halign: 'right' } }, { content: 'Δ %', styles: { halign: 'right' } }]],
+    body: catBody,
+    columnStyles: {
+      0: { cellWidth: 'auto', fontStyle: 'bold' },
+      1: { cellWidth: 32, halign: 'right' },
+      2: { cellWidth: 22, halign: 'right', textColor: COLOR.muted },
+      3: { cellWidth: 20, halign: 'right', fontStyle: 'bold' },
+    },
+  });
+  y = doc.lastAutoTable.finalY + 6;
+
+  // === TABLA 3: Top 5 fondos más invertidos ===
+  if (y > PAGE_H - 60) { doc.addPage(); drawPageHeader(); }
+  drawSectionTitle(`Top 5 fondos más invertidos · ${lastP}`);
+  const top5Body = fundsRanked.slice(0, 5).map((f, i) => [
+    String(i + 1),
+    { content: `${friendly(f.nemo)}${f.serie ? ' · Serie ' + f.serie : ''}\n${f.nemo}`, styles: { fontStyle: 'bold' } },
+    f.agf || '—',
+    String(f.cias),
+    fmtMoney(f.valLibro),
+    `${(f.valLibro / totalLast * 100).toFixed(1)}%`,
+    { content: f.isNew ? 'nuevo' : fmtPct(f.deltaPct), styles: { textColor: f.deltaPct === null ? COLOR.muted : (f.deltaPct > 0 ? COLOR.green : COLOR.red) } },
+  ]);
+  doc.autoTable({
+    ...tableBase,
+    startY: y,
+    head: [['#', 'Fondo', 'AGF', { content: 'Cías.', styles: { halign: 'right' } }, { content: 'Val. Libro', styles: { halign: 'right' } }, { content: '% sist.', styles: { halign: 'right' } }, { content: 'Δ %', styles: { halign: 'right' } }]],
+    body: top5Body,
+    columnStyles: {
+      0: { cellWidth: 8, textColor: COLOR.muted },
+      1: { cellWidth: 90 },
+      2: { cellWidth: 'auto', textColor: COLOR.muted },
+      3: { cellWidth: 14, halign: 'right' },
+      4: { cellWidth: 26, halign: 'right' },
+      5: { cellWidth: 16, halign: 'right', textColor: COLOR.muted },
+      6: { cellWidth: 18, halign: 'right', fontStyle: 'bold' },
+    },
+  });
+  y = doc.lastAutoTable.finalY + 6;
+
+  // === ALERTAS (solo si prevP) ===
+  if (prevP && (fundGrowers.length > 0 || newFunds.length > 0)) {
+    if (y > PAGE_H - 60) { doc.addPage(); drawPageHeader(); }
+    drawSectionTitle(`Alertas · ${prevP} → ${lastP}`);
+    // Fondos con mayor crecimiento
+    if (fundGrowers.length > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...COLOR.green);
+      doc.text('Fondos con mayor crecimiento', MARGIN_X, y);
+      y += 4;
+      const growersBody = fundGrowers.map(f => [
+        { content: `${friendly(f.nemo)}${f.serie ? ' · ' + f.serie : ''}`, styles: { fontStyle: 'bold' } },
+        f.agf || '—',
+        fmtMoney(f.valLibro),
+        { content: fmtDelta(f.deltaAbs), styles: { textColor: f.deltaAbs > 0 ? COLOR.green : COLOR.red, fontStyle: 'bold' } },
+        { content: fmtPct(f.deltaPct), styles: { textColor: f.deltaPct > 0 ? COLOR.green : COLOR.red, fontStyle: 'bold' } },
+      ]);
+      doc.autoTable({
+        ...tableBase,
+        startY: y,
+        head: [['Fondo', 'AGF', { content: 'Val. Libro', styles: { halign: 'right' } }, { content: 'Δ abs.', styles: { halign: 'right' } }, { content: 'Δ %', styles: { halign: 'right' } }]],
+        body: growersBody,
+        columnStyles: {
+          0: { cellWidth: 'auto' },
+          1: { cellWidth: 60, textColor: COLOR.muted },
+          2: { cellWidth: 28, halign: 'right' },
+          3: { cellWidth: 26, halign: 'right' },
+          4: { cellWidth: 20, halign: 'right' },
+        },
+      });
+      y = doc.lastAutoTable.finalY + 6;
+    }
+    // Fondos nuevos
+    if (newFunds.length > 0) {
+      if (y > PAGE_H - 40) { doc.addPage(); drawPageHeader(); }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...COLOR.blue);
+      doc.text(`Fondos nuevos · ${newFunds.length}`, MARGIN_X, y);
+      y += 4;
+      const newBody = newFunds.slice(0, 25).map(f => [
+        { content: `${friendly(f.nemo)}${f.serie ? ' · ' + f.serie : ''}`, styles: { fontStyle: 'bold' } },
+        f.agf || '—',
+        String(f.cias),
+        fmtMoney(f.valLibro),
+      ]);
+      doc.autoTable({
+        ...tableBase,
+        startY: y,
+        head: [['Fondo', 'AGF', { content: 'Cías.', styles: { halign: 'right' } }, { content: 'Val. Libro', styles: { halign: 'right' } }]],
+        body: newBody,
+        columnStyles: {
+          0: { cellWidth: 'auto' },
+          1: { cellWidth: 70, textColor: COLOR.muted },
+          2: { cellWidth: 16, halign: 'right' },
+          3: { cellWidth: 28, halign: 'right' },
+        },
+      });
+      y = doc.lastAutoTable.finalY + 6;
+    }
+  }
+
+  // === TABLA: Top 15 AGFs ===
+  if (y > PAGE_H - 60) { doc.addPage(); drawPageHeader(); }
+  drawSectionTitle(`Top 15 AGFs · ${lastP}`);
+  const agfBody = agfLast.slice(0, 15).map((a, i) => [
+    String(i + 1),
+    { content: `${a.agf}\nRUT ${fmtRut(a.rut)}`, styles: { fontStyle: 'bold' } },
+    String(a.fundsCount),
+    String(a.insurersCount),
+    String(a.positions),
+    fmtMoney(a.valLibro),
+  ]);
+  doc.autoTable({
+    ...tableBase,
+    startY: y,
+    head: [['#', 'AGF / Emisor', { content: 'Fondos', styles: { halign: 'right' } }, { content: 'Cías.', styles: { halign: 'right' } }, { content: 'Pos.', styles: { halign: 'right' } }, { content: 'Val. Libro', styles: { halign: 'right' } }]],
+    body: agfBody,
+    columnStyles: {
+      0: { cellWidth: 8, textColor: COLOR.muted },
+      1: { cellWidth: 'auto' },
+      2: { cellWidth: 22, halign: 'right' },
+      3: { cellWidth: 22, halign: 'right' },
+      4: { cellWidth: 22, halign: 'right' },
+      5: { cellWidth: 32, halign: 'right', fontStyle: 'bold' },
+    },
+  });
+
+  // === FOOTER en todas las páginas ===
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(...COLOR.muted);
+    doc.text('Ameris AGF · Generado desde dashboard CMF · Información de uso interno', MARGIN_X, PAGE_H - 5);
+    doc.text(`${i} / ${totalPages}`, PAGE_W - MARGIN_X, PAGE_H - 5, { align: 'right' });
+  }
+
+  const fname = `ameris-resumen-${lastP}-${new Date().toISOString().slice(0, 10)}.pdf`;
+  doc.save(fname);
+}
+
+// Función legacy mantenida para compatibilidad si algo la llama (no usada actualmente).
 function _buildPdfHtml() {
   const hs = activeHoldings();
   const periodsLoaded = allPeriods();
