@@ -1211,7 +1211,7 @@
     <div class="stat-item"><span class="stat-num" id="stat-files">0</span><span class="stat-label">Archivos</span></div>
     <div class="stat-item"><span class="stat-num" id="stat-companies">0</span><span class="stat-label">Compañías</span></div>
     <div class="stat-item"><span class="stat-num" id="stat-period">—</span><span class="stat-label">Período</span></div>
-    <button class="help-btn" id="btn-help" type="button">Ayuda</button>
+    <button class="help-btn" id="btn-help" type="button" title="Glosario de términos + cómo usar la herramienta">❓ Ayuda / Glosario</button>
   </div>
 </header>
 <div class="accent-strip"></div>
@@ -1254,20 +1254,48 @@
     <div class="help-section">
       <h3>Glosario</h3>
       <dl>
+        <dt>B.2 · Local</dt>
+        <dd>Archivo CMF (Circular 1.835) con acciones y cuotas de fondos de inversión <em>nacionales</em> de cada compañía de seguros. Filename: <code>aAAAAMMv.RUT</code>.</dd>
+        <dt>B.5 · Extranjero</dt>
+        <dd>Archivo CMF (Circular 152) con inversiones <em>en el exterior</em>: bonos soberanos/corporativos, fondos y acciones extranjeras. Filename: <code>xAAAAMMv.RUT</code>.</dd>
         <dt>AGF</dt>
-        <dd>Administradora General de Fondos. La empresa que crea y gestiona el fondo de inversión.</dd>
+        <dd>Administradora General de Fondos. Empresa que crea y gestiona el fondo de inversión (ej: Ameris, BTG Pactual, Larraín Vial).</dd>
         <dt>CFI</dt>
-        <dd>Cuota de Fondo de Inversión. Cada "cuota" es una participación del fondo (similar a una acción).</dd>
+        <dd>Cuota de Fondo de Inversión. Cada "cuota" es una participación del fondo (similar a una acción). Nemos CFI* empiezan con esos 3 caracteres.</dd>
+        <dt>AUM</dt>
+        <dd>Assets Under Management. Activos totales que una AGF (o el sistema) administra. Aquí lo medimos en Val. Libro CLP.</dd>
         <dt>ACC / ACCR</dt>
         <dd>Acción de S.A. abierta (ACC) o cerrada/recurrente (ACCR).</dd>
         <dt>Nemotécnico</dt>
         <dd>Código identificador del instrumento. Ej: <code>CFIAMRRE-E</code> = Ameris Renta Residencial Serie E.</dd>
         <dt>Val. Libro</dt>
-        <dd>Valor contable total de la posición (en pesos). Es el campo VALOR_LIBRO del archivo B.2.</dd>
+        <dd>Valor contable total de la posición (en pesos CLP). Es el campo VALOR_LIBRO del archivo CMF — lo que la compañía registra como su inversión.</dd>
         <dt>Val. Cuota</dt>
         <dd>Precio por cuota (Val. Libro ÷ Unidades). Equivale al "valor cuota" oficial publicado por la AGF.</dd>
         <dt>Unidades</dt>
         <dd>Cantidad de cuotas o acciones que la compañía mantiene en cartera.</dd>
+        <dt>Posición</dt>
+        <dd>Cada fila individual de un archivo: una compañía × un instrumento × un período. Si una cía. tiene 5 fondos, son 5 posiciones.</dd>
+        <dt>Período</dt>
+        <dd>Mes y año del archivo (formato YYYYMM, ej. 202603). Cada archivo CMF reporta un solo período.</dd>
+        <dt>Pulso Ameris</dt>
+        <dd>Pestaña con métricas específicas de Ameris AGF: AUM total, clientes, cuota de mercado, fondos colocados, evolución, oportunidades.</dd>
+        <dt>Cuota de mercado / Market Share</dt>
+        <dd>% del total CFI del sistema cargado que corresponde a una AGF. Métrica de tamaño relativo.</dd>
+        <dt>Penetración</dt>
+        <dd>% de aseguradoras del sistema cargado que tienen al menos un fondo de la AGF analizada. Mide alcance comercial.</dd>
+        <dt>HHI (Concentración)</dt>
+        <dd>Índice Herfindahl-Hirschman. Mide qué tan concentrada está la cartera de clientes Ameris. Bajo 1.500 = saludable; sobre 2.500 = alta dependencia de pocos clientes.</dd>
+        <dt>Δ abs. / Δ %</dt>
+        <dd>Cambio absoluto (en pesos) o porcentual respecto al período anterior. Positivo = creció; negativo = decreció.</dd>
+        <dt>RUT_AGF_MAP</dt>
+        <dd>Tabla curada manualmente que mapea RUTs de administradoras al nombre canónico. Usada como fallback cuando el campo NOMBRE_EMISOR del CMF viene truncado.</dd>
+        <dt>NEMO_AUTHORITY</dt>
+        <dd>Tabla derivada del campo NOMBRE_EMISOR de los archivos B.5 — fuente de nombres de fondos cuando no hay info de Bolsa de Santiago.</dd>
+        <dt>BOLSA_OVERRIDES</dt>
+        <dd>Nombres oficiales de fondos scrapeados de www.bolsadesantiago.com. Tiene la máxima prioridad después de los overrides manuales del usuario.</dd>
+        <dt>Conflicto RUT vs NOMBRE_EMISOR</dt>
+        <dd>Cuando el RUT que la compañía reporta como administradora NO coincide con el NOMBRE_EMISOR del propio archivo. Suele ser un error de filing — el dashboard prioriza el NOMBRE_EMISOR.</dd>
       </dl>
     </div>
   </div>
@@ -6458,7 +6486,7 @@ function setupControls() {
       const opening = !helpPanel.classList.contains('open');
       helpPanel.classList.toggle('open', opening);
       helpBtn.classList.toggle('active', opening);
-      helpBtn.textContent = opening ? 'Cerrar' : 'Ayuda';
+      helpBtn.textContent = opening ? '✕ Cerrar' : '❓ Ayuda / Glosario';
     });
   }
 }
