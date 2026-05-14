@@ -343,6 +343,11 @@
     to { opacity: 0; transform: translateY(-8px); }
   }
 
+  /* Clase usada por _buildPdfHtml() en bloques que NO deben partirse
+     entre páginas del PDF (header, KPIs, conclusiones, cards pequeñas).
+     html2pdf usa css-page-break-inside:avoid via su modo 'css'. */
+  .pdf-no-break { page-break-inside: avoid; break-inside: avoid; }
+
   /* ============== PRINT STYLES (PDF del Resumen General) ============== */
   /* Cuando se activa con .printing-resumen en <body>, oculta todo
      excepto el panel del Resumen General. window.print() del browser
@@ -6697,11 +6702,14 @@ function setupControls() {
     const lastP = periods[periods.length - 1] || '';
     const fname = `ameris-resumen${lastP ? '-' + lastP : ''}-${new Date().toISOString().slice(0,10)}.pdf`;
     html2pdf().set({
-      margin: [10, 10, 12, 10],  // top, right, bottom, left (mm)
+      margin: [8, 10, 10, 10],  // top, right, bottom, left (mm)
       filename: fname,
       image: { type: 'jpeg', quality: 0.95 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', letterRendering: true },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', letterRendering: true, windowWidth: 1100 },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+      // Modo css: respeta los page-break-inside:avoid de los bloques marcados
+      // con .pdf-no-break (header, KPIs, conclusiones). Las tablas largas no
+      // tienen ese marcador y se cortan naturalmente sin dejar huecos.
       pagebreak: { mode: ['css', 'legacy'], avoid: '.pdf-no-break' },
     }).from(wrapper).save().then(() => {
       wrapper.remove();
@@ -6728,7 +6736,7 @@ function _buildPdfHtml() {
   const periodDelta = prevSum > 0 ? (lastSum / prevSum - 1) : null;
   const lastLocal = lastHs.filter(h => h._source === 'b2').reduce((s, h) => s + h.valLibro, 0);
   const lastExt = lastHs.filter(h => h._source === 'b5').reduce((s, h) => s + h.valLibro, 0);
-  const lastIns = new Set(lastHs.map(h => h.insurerRut)).size;
+  const lastIns = new Set(lastHs.map(h => h._insurerRut).filter(Boolean)).size;
   const lastAgfs = new Set(lastHs.map(h => canonicalAgfRut(h.rutAdm || h.rutEmisor)).filter(Boolean)).size;
   const insLast = aggregateByInsurer(lastHs);
   const insPrev = aggregateByInsurer(prevHs);
@@ -6750,7 +6758,7 @@ function _buildPdfHtml() {
   const fundsRanked = fundsLast.map(f => {
     const key = f.nemo + '||' + f.serie;
     const prev = prevFundByKey.get(key);
-    const cias = new Set(lastHs.filter(h => h.nemo === f.nemo && h.serie === f.serie).map(h => h.insurerRut)).size;
+    const cias = new Set(lastHs.filter(h => h.nemo === f.nemo && h.serie === f.serie).map(h => h._insurerRut)).size;
     return { ...f, cias, prev, deltaAbs: prev ? f.valLibro - prev.valLibro : f.valLibro,
              deltaPct: prev && prev.valLibro > 0 ? (f.valLibro / prev.valLibro - 1) : null,
              isNew: !prev };
@@ -6771,25 +6779,25 @@ function _buildPdfHtml() {
 
   // === Styles inline para PDF (independientes del CSS de la app) ===
   const S = {
-    page: 'font-family:Inter,system-ui,sans-serif;color:#14233b;width:277mm;background:white;padding:0;',
-    h1: 'font-size:18px;font-weight:600;color:#0A2B5E;letter-spacing:-.02em;margin:0;',
-    sub: 'font-size:10px;color:#6b7280;letter-spacing:.06em;text-transform:uppercase;margin:0 0 3px;',
-    sec: 'font-size:13px;font-weight:600;color:#0A2B5E;margin:14px 0 8px;padding:0 0 5px;border-bottom:1px solid #c7d2fe;letter-spacing:-.01em;',
-    kpiRow: 'display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin:10px 0 6px;',
-    kpi: 'border:1px solid #E3E8F1;border-radius:6px;padding:10px 12px;background:#f8fafc;',
-    kpiLabel: 'font-size:9px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;',
-    kpiValue: 'font-size:18px;font-weight:600;color:#0A2B5E;letter-spacing:-.02em;line-height:1.1;',
-    kpiSub: 'font-size:9.5px;color:#6b7280;margin-top:3px;',
-    table: 'width:100%;border-collapse:collapse;font-size:10.5px;margin-top:4px;',
-    th: 'text-align:left;font-size:9px;font-weight:600;color:#1F44C5;text-transform:uppercase;letter-spacing:.06em;padding:6px 8px;border-bottom:1px solid #c7d2fe;background:#f4f7fc;',
+    page: 'font-family:Inter,system-ui,sans-serif;color:#14233b;width:277mm;background:white;padding:0;margin:0;',
+    h1: 'font-size:17px;font-weight:600;color:#0A2B5E;letter-spacing:-.02em;margin:0;line-height:1.2;',
+    sub: 'font-size:9px;color:#6b7280;letter-spacing:.08em;text-transform:uppercase;margin:0 0 2px;',
+    sec: 'font-size:12px;font-weight:600;color:#0A2B5E;margin:10px 0 6px;padding:0 0 4px;border-bottom:1px solid #c7d2fe;letter-spacing:-.01em;',
+    kpiRow: 'display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin:6px 0;',
+    kpi: 'border:1px solid #E3E8F1;border-radius:5px;padding:7px 10px;background:#f8fafc;',
+    kpiLabel: 'font-size:8.5px;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;',
+    kpiValue: 'font-size:15px;font-weight:600;color:#0A2B5E;letter-spacing:-.02em;line-height:1.05;',
+    kpiSub: 'font-size:8.5px;color:#6b7280;margin-top:2px;',
+    table: 'width:100%;border-collapse:collapse;font-size:9.5px;margin-top:2px;',
+    th: 'text-align:left;font-size:8.5px;font-weight:600;color:#1F44C5;text-transform:uppercase;letter-spacing:.06em;padding:4px 6px;border-bottom:1px solid #c7d2fe;background:#f4f7fc;',
     thNum: 'text-align:right;',
-    td: 'padding:5px 8px;border-bottom:1px solid #f0f2f8;',
+    td: 'padding:3px 6px;border-bottom:1px solid #f0f2f8;line-height:1.3;',
     tdNum: 'text-align:right;font-variant-numeric:tabular-nums;',
     pos: 'color:#047857;font-weight:500;',
     neg: 'color:#b91c1c;font-weight:500;',
-    conclusion: 'background:#f0f7ff;border-left:3px solid #1F44C5;padding:10px 14px;border-radius:4px;font-size:11px;line-height:1.55;margin:6px 0 0;',
-    cell: 'background:white;border:1px solid #E3E8F1;border-radius:6px;padding:10px 12px;',
-    grid2: 'display:grid;grid-template-columns:1fr 1fr;gap:10px;',
+    conclusion: 'background:#f0f7ff;border-left:3px solid #1F44C5;padding:8px 12px;border-radius:4px;font-size:10px;line-height:1.5;margin:4px 0 0;',
+    cell: 'background:white;border:1px solid #E3E8F1;border-radius:5px;padding:8px 10px;',
+    grid2: 'display:grid;grid-template-columns:1fr 1fr;gap:8px;',
     noBreak: 'page-break-inside:avoid;',
   };
 
@@ -6801,20 +6809,20 @@ function _buildPdfHtml() {
 
   // === HTML por secciones ===
   const header = `
-    <div style="border-bottom:2px solid #1F44C5;padding-bottom:10px;display:flex;justify-content:space-between;align-items:flex-end;${S.noBreak}">
+    <div class="pdf-no-break" style="border-bottom:1.5px solid #1F44C5;padding-bottom:8px;display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px">
       <div>
         <div style="${S.sub}">Ameris AGF · Análisis CMF Compañías de Seguros</div>
         <div style="${S.h1}">Resumen General · ${lastP}</div>
       </div>
-      <div style="font-size:10px;color:#6b7280;text-align:right;line-height:1.4">
-        ${lastIns} compañías · ${lastAgfs} AGFs · ${periodsLoaded.length} período${periodsLoaded.length !== 1 ? 's' : ''} cargado${periodsLoaded.length !== 1 ? 's' : ''}<br>
+      <div style="font-size:9px;color:#6b7280;text-align:right;line-height:1.4">
+        ${lastIns} compañías · ${lastAgfs} AGFs · ${periodsLoaded.length} período${periodsLoaded.length !== 1 ? 's' : ''}<br>
         Generado: ${today}
       </div>
     </div>
   `;
 
   const kpis = `
-    <div style="${S.kpiRow}${S.noBreak}">
+    <div class="pdf-no-break" style="${S.kpiRow}">
       <div style="${S.kpi}">
         <div style="${S.kpiLabel}">AUM CFI · ${lastP}</div>
         <div style="${S.kpiValue}">${fmtMoney(lastSum)}</div>
@@ -6827,7 +6835,7 @@ function _buildPdfHtml() {
       </div>
       <div style="${S.kpi}">
         <div style="${S.kpiLabel}">Local vs Extranjero</div>
-        <div style="${S.kpiValue};font-size:15px">${lastSum > 0 ? Math.round(lastLocal / lastSum * 100) : 0}% / ${lastSum > 0 ? Math.round(lastExt / lastSum * 100) : 0}%</div>
+        <div style="${S.kpiValue};font-size:14px">${lastSum > 0 ? Math.round(lastLocal / lastSum * 100) : 0}% / ${lastSum > 0 ? Math.round(lastExt / lastSum * 100) : 0}%</div>
         <div style="${S.kpiSub}">B.2 ${fmtMoney(lastLocal)} · B.5 ${fmtMoney(lastExt)}</div>
       </div>
       <div style="${S.kpi}">
@@ -6839,9 +6847,9 @@ function _buildPdfHtml() {
   `;
 
   const conclusiones = `
-    <div style="${S.conclusion}${S.noBreak}">
-      <div style="margin-bottom:4px"><b style="color:#1F44C5">Concentración:</b> Top 5 (${top5Names}) = <b>${top5Share.toFixed(1)}%</b> del Val. Libro CFI.</div>
-      ${prevP ? `<div style="margin-bottom:4px"><b style="color:#1F44C5">Crecimiento:</b> ${periodDelta > 0 ? 'creció' : 'decreció'} <b style="color:${periodDelta>0?'#047857':'#b91c1c'}">${fmtPct(periodDelta)}</b> (${periodDelta > 0 ? '+' : ''}${fmtMoney(lastSum - prevSum)}) entre ${prevP} y ${lastP}.</div>` : ''}
+    <div class="pdf-no-break" style="${S.conclusion}">
+      <div style="margin-bottom:3px"><b style="color:#1F44C5">Concentración:</b> Top 5 (${top5Names}) = <b>${top5Share.toFixed(1)}%</b> del Val. Libro CFI.</div>
+      ${prevP ? `<div style="margin-bottom:3px"><b style="color:#1F44C5">Crecimiento:</b> ${periodDelta > 0 ? 'creció' : 'decreció'} <b style="color:${periodDelta>0?'#047857':'#b91c1c'}">${fmtPct(periodDelta)}</b> (${periodDelta > 0 ? '+' : ''}${fmtMoney(lastSum - prevSum)}) entre ${prevP} y ${lastP}.</div>` : ''}
       <div><b style="color:#1F44C5">Composición:</b> Categoría más grande: <b>${escapeHtml(catEntries[0] ? catEntries[0][0] : '—')}</b> con ${catEntries[0] ? fmtMoney(catEntries[0][1]) : '—'} (${catEntries[0] ? (catEntries[0][1] / totalLast * 100).toFixed(1) + '%' : '—'}).</div>
     </div>
   `;
@@ -6872,24 +6880,24 @@ function _buildPdfHtml() {
   }).join('');
 
   const rankingSection = `
-    <div style="page-break-before:auto;${S.noBreak}">
+    <div>
       <div style="${S.sec}">Ranking compañías y composición · ${lastP}</div>
       <div style="${S.grid2}">
         <div style="${S.cell}">
-          <div style="font-size:11px;font-weight:600;color:#0A2B5E;margin-bottom:6px">Ranking detallado · Val. Libro y Δ${prevP ? ` vs ${prevP}` : ''}</div>
+          <div style="font-size:10.5px;font-weight:600;color:#0A2B5E;margin-bottom:4px">Ranking detallado · Val. Libro y Δ${prevP ? ` vs ${prevP}` : ''}</div>
           <table style="${S.table}">
             <thead><tr>
-              <th style="${S.th};width:28px">#</th>
+              <th style="${S.th};width:24px">#</th>
               <th style="${S.th}">Compañía</th>
               <th style="${S.th}${S.thNum}">Val. Libro</th>
               <th style="${S.th}${S.thNum}">% cartera</th>
               <th style="${S.th}${S.thNum}">Δ %</th>
             </tr></thead>
-            <tbody>${insRows || '<tr><td colspan="5" style="padding:14px;text-align:center;color:#6b7280">Sin datos</td></tr>'}</tbody>
+            <tbody>${insRows || '<tr><td colspan="5" style="padding:10px;text-align:center;color:#6b7280">Sin datos</td></tr>'}</tbody>
           </table>
         </div>
         <div style="${S.cell}">
-          <div style="font-size:11px;font-weight:600;color:#0A2B5E;margin-bottom:6px">Composición por categoría</div>
+          <div style="font-size:10.5px;font-weight:600;color:#0A2B5E;margin-bottom:4px">Composición por categoría</div>
           <table style="${S.table}">
             <thead><tr>
               <th style="${S.th}">Categoría</th>
@@ -6897,7 +6905,7 @@ function _buildPdfHtml() {
               <th style="${S.th}${S.thNum}">% cartera</th>
               <th style="${S.th}${S.thNum}">Δ %</th>
             </tr></thead>
-            <tbody>${catRows || '<tr><td colspan="4" style="padding:14px;text-align:center;color:#6b7280">Sin datos</td></tr>'}</tbody>
+            <tbody>${catRows || '<tr><td colspan="4" style="padding:10px;text-align:center;color:#6b7280">Sin datos</td></tr>'}</tbody>
           </table>
         </div>
       </div>
@@ -6918,7 +6926,7 @@ function _buildPdfHtml() {
   }).join('');
 
   const top5FundsSection = `
-    <div style="page-break-before:always;${S.noBreak}">
+    <div class="pdf-no-break">
       <div style="${S.sec}">Top 5 fondos más invertidos · ${lastP}</div>
       <div style="${S.cell}">
         <table style="${S.table}">
@@ -6954,11 +6962,11 @@ function _buildPdfHtml() {
       <td style="${S.td}${S.tdNum}">${fmtMoney(f.valLibro)}</td>
     </tr>`).join('');
     alertasSection = `
-      <div style="page-break-before:always">
+      <div>
         <div style="${S.sec}">Alertas · ${prevP} → ${lastP}</div>
         <div style="${S.grid2}">
-          <div style="${S.cell}${S.noBreak};border-left:3px solid #16a34a">
-            <div style="font-size:11px;font-weight:600;color:#16a34a;margin-bottom:6px">Fondos con mayor crecimiento</div>
+          <div style="${S.cell};border-left:3px solid #16a34a">
+            <div style="font-size:10.5px;font-weight:600;color:#16a34a;margin-bottom:4px">Fondos con mayor crecimiento</div>
             <table style="${S.table}">
               <thead><tr>
                 <th style="${S.th}">Fondo</th>
@@ -6967,11 +6975,11 @@ function _buildPdfHtml() {
                 <th style="${S.th}${S.thNum}">Δ abs.</th>
                 <th style="${S.th}${S.thNum}">Δ %</th>
               </tr></thead>
-              <tbody>${growersRows || '<tr><td colspan="5" style="padding:10px;text-align:center;color:#6b7280">Sin fondos en crecimiento</td></tr>'}</tbody>
+              <tbody>${growersRows || '<tr><td colspan="5" style="padding:8px;text-align:center;color:#6b7280">Sin fondos en crecimiento</td></tr>'}</tbody>
             </table>
           </div>
-          <div style="${S.cell}${S.noBreak};border-left:3px solid #1F44C5">
-            <div style="font-size:11px;font-weight:600;color:#1F44C5;margin-bottom:6px">Fondos nuevos · ${newFunds.length}</div>
+          <div style="${S.cell};border-left:3px solid #1F44C5">
+            <div style="font-size:10.5px;font-weight:600;color:#1F44C5;margin-bottom:4px">Fondos nuevos · ${newFunds.length}</div>
             <table style="${S.table}">
               <thead><tr>
                 <th style="${S.th}">Fondo</th>
@@ -6979,7 +6987,7 @@ function _buildPdfHtml() {
                 <th style="${S.th}${S.thNum}">Cías.</th>
                 <th style="${S.th}${S.thNum}">Val. Libro</th>
               </tr></thead>
-              <tbody>${newRows || '<tr><td colspan="4" style="padding:10px;text-align:center;color:#6b7280">Sin fondos nuevos</td></tr>'}</tbody>
+              <tbody>${newRows || '<tr><td colspan="4" style="padding:8px;text-align:center;color:#6b7280">Sin fondos nuevos</td></tr>'}</tbody>
             </table>
           </div>
         </div>
@@ -6998,7 +7006,7 @@ function _buildPdfHtml() {
   </tr>`).join('');
 
   const top15AgfsSection = `
-    <div style="page-break-before:always">
+    <div>
       <div style="${S.sec}">Top 15 AGFs · ${lastP}</div>
       <div style="${S.cell}">
         <table style="${S.table}">
