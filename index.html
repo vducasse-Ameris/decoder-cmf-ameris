@@ -1280,6 +1280,7 @@
     </div>
     <div class="right">
       <span class="ab-divider"></span>
+      <button class="btn btn-secondary" type="button" id="btn-quality" title="Auditoría de los datos cargados: nemos sin nombre, AGFs no mapeadas, posibles truncamientos y conflictos">Calidad de datos</button>
       <button class="btn btn-secondary" type="button" id="btn-export-csv" title="Descarga los datos visibles como archivo CSV (compatible con Excel)">Exportar CSV</button>
       <button class="btn btn-secondary" type="button" id="btn-clear" title="Borra todos los archivos cargados (acción no reversible)">Limpiar datos</button>
     </div>
@@ -1351,7 +1352,6 @@
     <div class="credits">
       <span>Ameris AGF · Herramienta interna · v1.2</span>
       <span class="contact">Av. El Golf 82, Piso 5, Las Condes, Santiago · <a href="mailto:contacto@ameris.cl">contacto@ameris.cl</a></span>
-      <a href="#" id="quality-link" style="color:var(--c-muted);font-size:11px;text-decoration:none" title="Auditoría de los datos cargados: nemos sin nombre, AGFs no mapeadas, posibles truncamientos y conflictos">⚙ Calidad de datos</a>
     </div>
   </footer>
 </div>
@@ -5515,12 +5515,11 @@ function setupTabs() {
     });
   });
 
-  // Link discreto de "Calidad de datos" en el footer: muestra el panel
-  // sin agregar una tab visible en la barra principal.
-  const qualityLink = document.getElementById('quality-link');
-  if (qualityLink) {
-    qualityLink.addEventListener('click', (e) => {
-      e.preventDefault();
+  // Botón "Calidad de datos" en la action-bar (junto a Exportar CSV /
+  // Limpiar datos): muestra el panel sin ocupar lugar en la tabbar.
+  const qualityBtn = document.getElementById('btn-quality');
+  if (qualityBtn) {
+    qualityBtn.addEventListener('click', () => {
       document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       document.getElementById('tab-quality').classList.add('active');
