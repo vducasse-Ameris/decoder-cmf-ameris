@@ -1017,56 +1017,99 @@
   .help-section dd { margin: 2px 0 0 0; color: var(--c-muted); padding-left: 0; }
   /* Welcome card — shown when no files loaded */
   .welcome-card {
-    background: white;
+    background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 100%);
     border: 1px solid var(--c-border);
-    border-left: 4px solid var(--c-ameris-cyan);
+    border-left: 5px solid var(--c-ameris-cyan);
     border-radius: var(--radius);
-    padding: 22px 26px;
-    margin-bottom: 20px;
+    padding: 26px 30px;
+    margin-bottom: 22px;
     box-shadow: var(--shadow-sm);
   }
-  .welcome-card h2 {
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--c-ameris-blue);
-    margin: 0 0 8px;
-    letter-spacing: -.2px;
+  .welcome-hero {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    margin-bottom: 22px;
   }
-  .welcome-card p {
-    font-size: 13px;
-    color: var(--c-muted);
-    margin: 0 0 18px;
-    line-height: 1.55;
+  .welcome-hero-text { flex: 1; min-width: 0; }
+  .welcome-hero h2 {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--c-ameris-navy);
+    margin: 0 0 10px;
+    letter-spacing: -.4px;
+    line-height: 1.2;
+  }
+  .welcome-hero p {
+    font-size: 13.5px;
+    color: var(--c-text);
+    margin: 0;
+    line-height: 1.6;
     max-width: 720px;
+  }
+  .welcome-hero-arrow {
+    flex-shrink: 0;
+    text-align: center;
+    color: var(--c-ameris-blue);
+    animation: arrow-bounce 2.5s ease-in-out infinite;
+  }
+  .welcome-hero-arrow svg {
+    background: var(--c-ameris-pale);
+    border-radius: 50%;
+    padding: 12px;
+    box-sizing: content-box;
+  }
+  .welcome-arrow-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--c-ameris-blue);
+    margin-top: 6px;
+    letter-spacing: .3px;
+  }
+  @keyframes arrow-bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(8px); }
   }
   .welcome-steps {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
-    gap: 14px;
+    gap: 16px;
     margin-top: 4px;
   }
   @media (max-width: 800px) {
     .welcome-steps { grid-template-columns: 1fr; }
+    .welcome-hero { flex-direction: column; align-items: flex-start; }
   }
   .welcome-step {
-    background: var(--c-ameris-soft);
+    background: white;
     border-radius: var(--r-sm);
-    padding: 14px 16px;
+    padding: 16px 18px;
     border: 1px solid var(--c-ameris-pale);
+    transition: transform .15s ease, box-shadow .15s ease;
   }
-  .welcome-step .step-circle {
-    width: 28px; height: 28px;
-    background: var(--c-ameris-blue);
+  .welcome-step:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 14px rgba(31, 68, 197, 0.1);
+  }
+  .welcome-step .step-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--c-ameris-blue) 0%, var(--c-ameris-navy) 100%);
     color: white;
-    border-radius: 50%;
-    text-align: center;
-    line-height: 28px;
-    font-weight: 700;
-    font-size: 13px;
-    margin-bottom: 8px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 12px;
   }
-  .welcome-step h4 { font-size: 13px; font-weight: 700; color: var(--c-ameris-navy); margin: 0 0 4px; }
-  .welcome-step p { font-size: 12px; color: var(--c-text); margin: 0; line-height: 1.5; max-width: none; }
+  .welcome-step h4 { font-size: 13.5px; font-weight: 700; color: var(--c-ameris-navy); margin: 0 0 6px; letter-spacing: -.1px; }
+  .welcome-step p { font-size: 12px; color: var(--c-text); margin: 0; line-height: 1.55; max-width: none; }
+  .welcome-step code {
+    background: var(--c-ameris-soft);
+    color: var(--c-ameris-navy);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 11px;
+  }
   /* Tooltips — use abbr.tip pattern with native title fallback */
   .tip {
     border-bottom: 1px dotted var(--c-ameris-blue-2);
@@ -1205,26 +1248,56 @@
 
   <!-- Welcome card (visible only when no files loaded) -->
   <div id="welcome-card" class="welcome-card" style="display:none">
-    <h2>Bienvenido al Decoder de Carteras de Inversión</h2>
-    <p>
-      Esta herramienta decodifica dos formatos publicados mensualmente por la CMF: archivos <strong>B.2</strong> (acciones y cuotas de fondos de inversión nacionales) y archivos <strong>B.5</strong> (inversiones en el extranjero — bonos, fondos y acciones extranjeras). Carga uno o ambos formatos abajo para comenzar.
-      Si es tu primera vez, haz clic en <strong>Ayuda</strong> arriba para ver el glosario y cómo usarla.
-    </p>
+    <div class="welcome-hero">
+      <div class="welcome-hero-text">
+        <h2>Decoder de Carteras de Inversión · Compañías de Seguros</h2>
+        <p>
+          Decodifica los archivos B.2 y B.5 publicados por la CMF para analizar las inversiones de las compañías de seguros chilenas en fondos de inversión locales y extranjeros.
+          <strong>Tus datos se procesan localmente</strong> — nada se envía a servidores externos.
+        </p>
+      </div>
+      <div class="welcome-hero-arrow" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <polyline points="19 12 12 19 5 12"/>
+        </svg>
+        <div class="welcome-arrow-label">Arrastra archivos abajo</div>
+      </div>
+    </div>
     <div class="welcome-steps">
       <div class="welcome-step">
-        <div class="step-circle">1</div>
-        <h4>Descarga los archivos</h4>
-        <p>Obtén los archivos desde la CMF: B.2 con prefijo <code>a</code> (ej: <code>a202512v.96812960</code>) y B.5 con prefijo <code>x</code> (ej: <code>x202512v.96812960</code>).</p>
+        <div class="step-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </div>
+        <h4>1 · Descargá archivos desde CMF</h4>
+        <p>El SVS / CMF publica mensualmente archivos por compañía con sus inversiones. Nombres tipo <code>a202603v.96812960</code> (B.2 · local) o <code>x202603v.96812960</code> (B.5 · extranjero).</p>
       </div>
       <div class="welcome-step">
-        <div class="step-circle">2</div>
-        <h4>Carga aquí</h4>
-        <p>Arrastra los archivos a la zona de carga o usa el botón "Seleccionar archivos". Acepta múltiples archivos y múltiples meses simultáneamente.</p>
+        <div class="step-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <h4>2 · Arrastralos a la zona azul/violeta</h4>
+        <p>Podés cargar varios archivos y varios meses a la vez. La detección de tipo es automática (B.2 o B.5 según prefijo). Los datos quedan guardados en tu navegador.</p>
       </div>
       <div class="welcome-step">
-        <div class="step-circle">3</div>
-        <h4>Navega y analiza</h4>
-        <p>Cambia entre pestañas para distintos enfoques. Filtra por período, AGF o tipo de instrumento. Tus datos quedan en tu navegador.</p>
+        <div class="step-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+          </svg>
+        </div>
+        <h4>3 · Navegá las pestañas</h4>
+        <p><strong>Resumen General</strong> para vista macro · <strong>Por AGF / Compañía</strong> para drill-down · <strong>Pulso Ameris</strong> para vista específica de tu AGF · <strong>Evolución</strong> para tendencias temporales.</p>
       </div>
     </div>
   </div>
