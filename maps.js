@@ -275,6 +275,10 @@ window.RUT_AGF_MAP = {
 };
 
 window.NEMO_NAME_MAP = {
+  // Overrides manuales para nemos CFI* que el scraper de Bolsa no logró capturar.
+  // Tienen prioridad sobre NEMO_AUTHORITY (que extrae del NOMBRE_EMISOR truncado de B.5).
+  "CFIMOP9I-E": "Moneda Alturas II Fondo de Inversión",
+
   "LTM": "LATAM Airlines (LTM)",
   "CHILE": "Banco de Chile S.A.",
   "FALABELLA": "Falabella S.A.",
