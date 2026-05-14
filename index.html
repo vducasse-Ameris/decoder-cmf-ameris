@@ -538,6 +538,41 @@
     padding: 14px 18px 18px;
     position: relative;
   }
+
+  /* Section heading — usado para dividir bloques tematicos dentro de un tab.
+     Reemplaza el inline style="margin:30px 0 14px;..." de muchos H3.
+     Aplicar via class="section-heading". */
+  .section-heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 38px 0 16px;
+    padding: 0 0 10px;
+    border-bottom: 2px solid var(--c-ameris-pale);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--c-ameris-navy);
+    letter-spacing: -.3px;
+  }
+  .section-heading::before {
+    content: "";
+    width: 4px;
+    height: 22px;
+    background: linear-gradient(180deg, var(--c-ameris-cyan) 0%, var(--c-ameris-blue) 100%);
+    border-radius: 2px;
+  }
+  .section-heading .section-hint {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--c-muted);
+    margin-left: auto;
+    letter-spacing: 0;
+  }
+  /* Primera section-heading dentro de un tab sin margin top excesivo */
+  .tab-panel > .section-heading:first-child,
+  .tab-panel > div:first-child > .section-heading:first-child {
+    margin-top: 22px;
+  }
   .card-header {
     display: flex;
     justify-content: space-between;
@@ -3452,7 +3487,7 @@ function renderGeneral() {
 
       const hasAlerts = fundGrowers.length > 0 || newFunds.length > 0;
       alertsBlock = hasAlerts ? `
-        <h3 style="margin:30px 0 14px;color:var(--c-ameris-navy);font-size:16px;font-weight:700;letter-spacing:-.3px">🚨 Alertas · ${prevPeriod} → ${lastPeriod}</h3>
+        <h3 class="section-heading">🚨 Alertas · ${prevPeriod} → ${lastPeriod}</h3>
         <div class="grid-2 equal-height">
           ${fundGrowers.length > 0 ? `
           <div class="card" style="border-left:4px solid #16a34a">
@@ -3489,7 +3524,7 @@ function renderGeneral() {
     }
 
     const top5FundsBlock = `
-      <h3 style="margin:30px 0 14px;color:var(--c-ameris-navy);font-size:16px;font-weight:700;letter-spacing:-.3px">⭐ Top 5 fondos más invertidos por compañías · ${lastPeriod}</h3>
+      <h3 class="section-heading">⭐ Top 5 fondos más invertidos por compañías · ${lastPeriod}</h3>
       <div class="card">
         <div style="padding:10px 14px 0;font-size:11.5px;color:var(--c-muted)">
           Ranking de fondos por Val. Libro total agregado entre todas las compañías de seguros. Δ vs ${prevPeriod || 'período anterior'}.
@@ -3569,7 +3604,7 @@ function renderGeneral() {
 
   // Top 15 AGFs · sección única (no duplicada con macroSections)
   const top15AgfsBlock = `
-    <h3 style="margin:30px 0 14px;color:var(--c-ameris-navy);font-size:16px;font-weight:700;letter-spacing:-.3px">🏢 Top 15 AGFs · ${lastPeriod}</h3>
+    <h3 class="section-heading">🏢 Top 15 AGFs · ${lastPeriod}</h3>
     <div class="card">
       <div style="padding:10px 14px 0;font-size:11.5px;color:var(--c-muted)">
         Ranking de administradoras por Val. Libro del último período. Mostrando fondos administrados, cías. clientes y posiciones totales.
@@ -3647,7 +3682,7 @@ function renderAuditSection() {
   `).join('');
 
   return `
-    <h3 style="margin:30px 0 14px;color:var(--c-ameris-navy);font-size:16px;font-weight:700;letter-spacing:-.3px">🔍 Auditoría de nombres pendientes</h3>
+    <h3 class="section-heading">🔍 Auditoría de nombres pendientes</h3>
     <div class="card" style="border-left:4px solid #f59e0b">
       <div class="card-header" style="background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%)">
         <div class="card-title">⚠️ Nemotécnicos sin nombre amigable en maps.js</div>
