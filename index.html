@@ -1624,11 +1624,13 @@
       </div>
     </div>
     <div class="right">
+      <button class="btn" type="button" id="btn-add-files" title="Cargar más archivos B.2 o B.5 al historial (los anteriores se mantienen)">+ Cargar archivos</button>
+      <input type="file" id="btn-add-files-input" multiple style="display:none">
       <span class="ab-divider"></span>
       <button class="btn btn-secondary" type="button" id="btn-quality" title="Auditoría de los datos cargados: nemos sin nombre, AGFs no mapeadas, posibles truncamientos y conflictos">Calidad de datos<span id="quality-badge" style="display:none;margin-left:6px;padding:1px 7px;border-radius:9px;background:#0891b2;color:white;font-size:10.5px;font-weight:700;line-height:14px;vertical-align:1px"></span></button>
       <button class="btn btn-secondary" type="button" id="btn-export-pdf" title="Generar PDF del Resumen General (usa la función Imprimir del navegador → Guardar como PDF)">PDF del Resumen</button>
       <button class="btn btn-secondary" type="button" id="btn-export-csv" title="Descarga los datos visibles como archivo CSV (compatible con Excel)">Exportar CSV</button>
-      <button class="btn btn-secondary" type="button" id="btn-clear" title="Borra todos los archivos cargados (acción no reversible)">Limpiar datos</button>
+      <button class="btn btn-secondary" type="button" id="btn-clear" title="Borra todos los archivos cargados del historial (acción no reversible)">Limpiar datos</button>
     </div>
   </div>
 
@@ -6879,6 +6881,22 @@ function setupControls() {
     STATE.agfFilter = e.target.value;
     renderAll();
   });
+  // Botón "+ Cargar archivos" en la action-bar: forma rápida de seguir
+  // agregando archivos al historial desde cualquier vista, sin volver al
+  // welcome card. Los archivos cargados antes se mantienen (persistencia IDB).
+  const btnAddFiles = document.getElementById('btn-add-files');
+  const btnAddFilesInput = document.getElementById('btn-add-files-input');
+  if (btnAddFiles && btnAddFilesInput) {
+    btnAddFiles.addEventListener('click', () => btnAddFilesInput.click());
+    btnAddFilesInput.addEventListener('change', () => {
+      if (btnAddFilesInput.files && btnAddFilesInput.files.length > 0) {
+        // Sin expectedType: ingestFiles enruta por filename (a* = B.2, x* = B.5)
+        ingestFiles(btnAddFilesInput.files, null);
+        btnAddFilesInput.value = '';
+      }
+    });
+  }
+
   document.getElementById('btn-clear').addEventListener('click', async () => {
     if (!confirm('¿Borrar todos los archivos cargados? Esta acción no se puede deshacer.')) return;
     STATE.files = [];
